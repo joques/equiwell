@@ -23,12 +23,12 @@
 > Gateway will use specific HTTP methods to represent operations on its
 > resources:
 
-- **GET (**Used on **/health, /agents, /metrics):** Standard HTTP method
+- **GET** (Used on **/health, /agents, /metrics):** Standard HTTP method
   for retrieving data. It is **safe** and **idempotent** - querying
   these endpoints will never alter the state of the backend agents or
   Gateway configurations.
 
-- **POST (**Used on **/prompt):** Standard HTTP method for submitting
+- **POST** (Used on **/prompt):** Standard HTTP method for submitting
   payloads to trigger backend actions. Since prompt submission is
   **non-idempotent** (triggers token-consuming AI model operations and
   updates conversational memory contexts) and carries a request body
