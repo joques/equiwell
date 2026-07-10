@@ -34,7 +34,7 @@
   updates conversational memory contexts) and carries a request body
   payload, POST is the semantically correct choice.
 
-- **OPTIONS (Used on all paths):** Handles preflight requests generated
+- **OPTIONS (Used on all paths ):** Handles preflight requests generated
   by browsers to validate CORS credentials before actual data
   transmission.
 
