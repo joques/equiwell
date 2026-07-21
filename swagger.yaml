@@ -4,7 +4,7 @@ info:
   description: API for fair borehole allocation and water management in the Kunene Region, Namibia. Features a light data store for immediate queries and interacts with third-party AI models for siting suggestions and routing.
   version: 1.0.0
 servers:
-  - url: https://api.equiwell.example.com/v1
+  - url: https://api.equiwell.nam.com/v1
     description: Production Server
 
 paths:
