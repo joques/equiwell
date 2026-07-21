@@ -1,0 +1,245 @@
+openapi: 3.0.0
+info:
+  title: Equi Well API
+  description: API for fair borehole allocation and water management in the Kunene Region, Namibia. Features a light data store for immediate queries and interacts with third-party AI models for siting suggestions and routing.
+  version: 1.0.0
+servers:
+  - url: https://api.equiwell.example.com/v1
+    description: Production Server
+
+paths:
+  /dashboard/summary:
+    get:
+      summary: Retrieve high-level dashboard statistics
+      description: Returns a fast JSON object with summary statistics (total working, total broken, communities at risk) to populate the main dashboard widgets without requiring frontend aggregation.
+      responses:
+        '200':
+          description: Summary statistics object.
+
+  /boreholes:
+    get:
+      summary: Retrieve all mapped boreholes
+      description: Fetches map coordinates (Lat/Lng), operational status, water yield, and pump type from the light data store to plot on the dashboard.
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+          description: Filter by status (e.g., working, broken)
+        - in: query
+          name: is_visible
+          schema:
+            type: boolean
+          description: Filter out hidden or decommissioned boreholes from the dashboard map
+        - in: query
+          name: pump_type
+          schema:
+            type: string
+            enum: [solar, diesel, windmill, hand_pump]
+          description: Filter by the energy source.
+      responses:
+        '200':
+          description: A list of boreholes with GeoJSON/coordinate data.
+    post:
+      summary: Register a new borehole
+      description: Updates the light data store map with a newly sited and drilled borehole.
+      responses:
+        '201':
+          description: Borehole successfully registered.
+
+  /boreholes/{boreholeId}:
+    get:
+      summary: Get details of a specific borehole
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detailed metrics (depth, quality, maintenance, pump_type).
+    patch:
+      summary: Partially update borehole (e.g., Hide from dashboard map, Mark as broken)
+      description: Use this to toggle `is_visible` to false, or to change `status` to "not working".
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_visible:
+                  type: boolean
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Borehole status/visibility updated successfully.
+
+  /boreholes/{boreholeId}/lab-tests:
+    post:
+      summary: Upload laboratory water quality tests
+      description: Allows health inspectors or engineers to log official physical water test results (e.g., E. coli, Arsenic). Critical alerts can automatically mark a borehole as unsafe.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                test_date:
+                  type: string
+                  format: date
+                e_coli_detected:
+                  type: boolean
+                arsenic_mg_l:
+                  type: number
+                fluoride_mg_l:
+                  type: number
+                is_safe_for_consumption:
+                  type: boolean
+      responses:
+        '201':
+          description: Lab test recorded successfully.
+
+  /boreholes/{boreholeId}/usage-quotas:
+    get:
+      summary: Retrieve water usage vs sustainable quota
+      description: Tracks how much water the community has pumped this month against the sustainable limit of the aquifer to enforce fair and safe extraction rates.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current month's usage compared to sustainable quota limit.
+
+  /boreholes/{boreholeId}/logistics:
+    get:
+      summary: Retrieve accessibility and logistics data
+      description: Fetches terrain difficulty, vehicle requirements, and seasonal warnings for a specific borehole.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Logistics object (e.g., "High-clearance 4x4 Mandatory", "Impassable during summer rains").
+
+  /routes/calculate:
+    post:
+      summary: Calculate safe logistical route
+      description: Interacts with a third-party mapping model to plot a safe off-road track to a borehole, avoiding fragile desert areas and flooded riverbeds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start_coordinates:
+                  type: string
+                destination_borehole_id:
+                  type: string
+                vehicle_type:
+                  type: string
+                  enum: [light_4x4, heavy_drilling_rig, maintenance_truck]
+      responses:
+        '200':
+          description: Route coordinates array to render on the dashboard map.
+
+  /boreholes/{boreholeId}/history:
+    get:
+      summary: Retrieve historical trends
+      description: Fetches the historical water yield over time. Crucial for the AI to predict dry-ups.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Historical yield data arrays.
+
+  /boreholes/{boreholeId}/telemetry:
+    post:
+      summary: Receive IoT Sensor Telemetry
+      description: Endpoint for automated sensors to push real-time data like water drawdown, recovery time, and energy usage/fuel level.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Telemetry logged successfully.
+
+  /maintenance-alerts:
+    get:
+      summary: Retrieve maintenance alerts
+      description: Returns a list of boreholes currently broken or flagged as high-risk for failure based on the light data store.
+      responses:
+        '200':
+          description: List of alerts.
+
+  /allocation-metrics:
+    get:
+      summary: Retrieve fair allocation metrics
+      description: Fetches demographic data (population, distance to water) to assess fair borehole allocation.
+      responses:
+        '200':
+          description: Allocation metrics data.
+
+  /community-requests:
+    post:
+      summary: Submit a community water request
+      description: Allows local leaders or communities to officially request water intervention.
+      responses:
+        '201':
+          description: Request logged successfully.
+
+  /factors:
+    get:
+      summary: Retrieve siting factors
+      description: Gets environmental factors like geological formation, groundwater recharge, and terrain accessibility.
+      responses:
+        '200':
+          description: List of environmental factors.
+
+  /suggestions/generate:
+    post:
+      summary: Request AI borehole suggestion
+      description: Sends complex allocation metrics, history, community requests, and factors to a third-party AI algorithm to suggest a fair and viable borehole location.
+      responses:
+        '202':
+          description: Request sent to AI model for processing.
+
+  /suggestions/{suggestionId}:
+    get:
+      summary: Retrieve AI suggestion results
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Returns the AI-generated geographical coordinates and fairness confidence score.
