@@ -17,21 +17,21 @@ graph LR
     IoTSensors[📡 IoT Sensors]:::iot
 
     %% Standard Flow (Dashboard to API)
-    Dashboard -->|1. GET /dashboard/summary| LightDB
-    Dashboard -->|2. GET /boreholes| LightDB
-    Dashboard -->|3. PATCH /boreholes/[id]| LightDB
+    Dashboard -->|"1. GET /dashboard/summary"| LightDB
+    Dashboard -->|"2. GET /boreholes"| LightDB
+    Dashboard -->|"3. PATCH /boreholes/id"| LightDB
     
     %% IoT Flow (Sensors to API)
-    IoTSensors == POST /telemetry ==> LightDB
+    IoTSensors == "POST /telemetry" ==> LightDB
 
     %% Complex Flow (Dashboard -> API -> AI)
-    Dashboard -. POST /suggestions/generate .-> LightDB
-    LightDB -. Bundle Factors & History .-> AIModel
-    AIModel -. Calculate Coordinates .-> LightDB
-    LightDB -. GET /suggestions/[id] .-> Dashboard
+    Dashboard -. "POST /suggestions/generate" .-> LightDB
+    LightDB -. "Bundle Factors & History" .-> AIModel
+    AIModel -. "Calculate Coordinates" .-> LightDB
+    LightDB -. "GET /suggestions/id" .-> Dashboard
     
     %% Routing Flow
-    Dashboard == POST /routes/calculate ==> LightDB
-    LightDB == Request Terrain Route ==> AIModel
-    AIModel == Return 4x4 Safe Route ==> LightDB
+    Dashboard == "POST /routes/calculate" ==> LightDB
+    LightDB == "Request Terrain Route" ==> AIModel
+    AIModel == "Return 4x4 Safe Route" ==> LightDB
 ```
