@@ -17,7 +17,7 @@
 
 These endpoints provide the high-level data needed to render the primary dashboard interface.
 
-### `GET /api/v1/dashboard/summary` (NEW)
+### `GET /api/v1/dashboard/summary`
 *   **Purpose:** Retrieve a high-level statistical summary for the dashboard landing page.
 *   **Reason:** Instead of the frontend calculating everything, this endpoint returns quick stats (e.g., total active boreholes, total broken, communities currently at risk) to populate the summary widgets at the top of the dashboard.
 
