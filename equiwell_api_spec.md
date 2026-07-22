@@ -6,7 +6,7 @@
 ---
 
 > [!NOTE] 
-> **Architectural Concept:** This API acts as the middleware connecting the User Dashboard to backend resources. To maintain efficiency, the API manages a **light data store** to process standard, immediate requests (like fetching mapped boreholes or basic factors). For more complex queries—specifically those generating new borehole site suggestions or routing—the API interacts with **third-party components (AI algorithms and models)**.
+> **Architectural Concept:** This API acts as the middleware connecting the User Dashboard to backend resources. To maintain efficiency, the API manages a **light data store** to process standard, immediate requests (like fetching mapped boreholes or basic factors). For more complex queries-specifically those generating new borehole site suggestions or routing-the API interacts with **third-party components (AI algorithms and models)**.
 
 > [!TIP]
 > **Primary Aim:** The core focus of this system is **water management using borehole siting**, with a specific emphasis on **fair borehole allocation**. The endpoints below are designed to make all information related to fair allocation, maintenance, logistics, and community needs accessible.
