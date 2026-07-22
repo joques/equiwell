@@ -50,7 +50,7 @@ These endpoints provide the high-level data needed to render the primary dashboa
 
 ---
 
-## 3. Water Quality & Usage Quotas (NEW)
+## 3. Water Quality & Usage Quotas (Sugge)
 
 Real-world water management requires ensuring the water is safe to drink and that the aquifer isn't being drained unfairly.
 
