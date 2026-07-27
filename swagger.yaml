@@ -6,9 +6,28 @@ info:
 servers:
   - url: https://api.equiwell.nam.com/v1
     description: Production Server
+
+tags:
+  - name: Dashboard Summary
+    description: High-level overview metrics for the primary UI.
+  - name: Boreholes
+    description: Core CRUD operations and mapping data for physical water infrastructure.
+  - name: Water Quality & Usage
+    description: Tracking aquifer health, usage quotas, and lab test results.
+  - name: Logistics & AI Siting
+    description: Endpoints powering off-road routing and AI-driven borehole siting.
+  - name: IoT & Alerts
+    description: Automated sensor telemetry and proactive maintenance flagging.
+  - name: Fair Allocation
+    description: Community requests and demographic parity metrics.
+  - name: User Management
+    description: Authentication and role-based access control (RBAC).
+
 paths:
   /dashboard/summary:
     get:
+      tags:
+        - Dashboard Summary
       summary: Retrieve high-level dashboard statistics
       description: Returns a fast JSON object with summary statistics (total working, total broken, communities at risk) to populate the main dashboard widgets without requiring frontend aggregation.
       responses:
@@ -23,8 +42,11 @@ paths:
                 communities_at_risk: 8
         '500':
           $ref: '#/components/responses/InternalError'
+
   /boreholes:
     get:
+      tags:
+        - Boreholes
       summary: Retrieve all mapped boreholes
       description: Fetches map coordinates (Lat/Lng), operational status, water yield, and pump type from the light data store to plot on the dashboard.
       parameters:
@@ -66,6 +88,8 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     post:
+      tags:
+        - Boreholes
       summary: Register a new borehole
       description: Updates the light data store map with a newly sited and drilled borehole.
       requestBody:
@@ -84,8 +108,11 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /boreholes/{boreholeId}:
     get:
+      tags:
+        - Boreholes
       summary: Get details of a specific borehole
       parameters:
         - in: path
@@ -114,6 +141,8 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     patch:
+      tags:
+        - Boreholes
       summary: Partially update borehole (e.g., Hide from dashboard map, Mark as broken)
       description: Use this to toggle `is_visible` to false, or to change `status` to "not working".
       parameters:
@@ -144,8 +173,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /boreholes/{boreholeId}/lab-tests:
     post:
+      tags:
+        - Water Quality & Usage
       summary: Upload laboratory water quality tests
       description: Allows health inspectors or engineers to log official physical water test results (e.g., E. coli, Arsenic). Critical alerts can automatically mark a borehole as unsafe.
       parameters:
@@ -186,8 +218,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /boreholes/{boreholeId}/usage-quotas:
     get:
+      tags:
+        - Water Quality & Usage
       summary: Retrieve water usage vs sustainable quota
       description: Tracks how much water the community has pumped this month against the sustainable limit of the aquifer to enforce fair and safe extraction rates.
       parameters:
@@ -209,8 +244,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /boreholes/{boreholeId}/logistics:
     get:
+      tags:
+        - Logistics & AI Siting
       summary: Retrieve accessibility and logistics data
       description: Fetches terrain difficulty, vehicle requirements, and seasonal warnings for a specific borehole.
       parameters:
@@ -232,8 +270,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /routes/calculate:
     post:
+      tags:
+        - Logistics & AI Siting
       summary: Calculate safe logistical route
       description: Interacts with a third-party mapping model to plot a safe off-road track to a borehole, avoiding fragile desert areas and flooded riverbeds.
       requestBody:
@@ -272,8 +313,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /boreholes/{boreholeId}/history:
     get:
+      tags:
+        - Logistics & AI Siting
       summary: Retrieve historical trends
       description: Fetches the historical water yield over time. Crucial for the AI to predict dry-ups.
       parameters:
@@ -298,8 +342,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /boreholes/{boreholeId}/telemetry:
     post:
+      tags:
+        - IoT & Alerts
       summary: Receive IoT Sensor Telemetry
       description: Endpoint for automated sensors to push real-time data like water drawdown, recovery time, and energy usage/fuel level.
       parameters:
@@ -324,8 +371,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /maintenance-alerts:
     get:
+      tags:
+        - IoT & Alerts
       summary: Retrieve maintenance alerts
       description: Returns a list of boreholes currently broken or flagged as high-risk for failure based on the light data store.
       responses:
@@ -340,8 +390,11 @@ paths:
                   reported_at: "2026-07-21T08:00:00Z"
         '500':
           $ref: '#/components/responses/InternalError'
+
   /allocation-metrics:
     get:
+      tags:
+        - Fair Allocation
       summary: Retrieve fair allocation metrics
       description: Fetches demographic data (population, distance to water) to assess fair borehole allocation.
       responses:
@@ -356,8 +409,11 @@ paths:
                 fairness_score: 4.2
         '500':
           $ref: '#/components/responses/InternalError'
+
   /community-requests:
     post:
+      tags:
+        - Fair Allocation
       summary: Submit a community water request
       description: Allows local leaders or communities to officially request water intervention.
       requestBody:
@@ -375,8 +431,11 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /factors:
     get:
+      tags:
+        - Logistics & AI Siting
       summary: Retrieve siting factors
       description: Gets environmental factors like geological formation, groundwater recharge, and terrain accessibility.
       responses:
@@ -390,8 +449,11 @@ paths:
                 accessibility: "Poor"
         '500':
           $ref: '#/components/responses/InternalError'
+
   /suggestions/generate:
     post:
+      tags:
+        - Logistics & AI Siting
       summary: Request AI borehole suggestion
       description: Sends complex allocation metrics, history, community requests, and factors to a third-party AI algorithm to suggest a fair and viable borehole location.
       requestBody:
@@ -418,8 +480,11 @@ paths:
               example:
                 error: "AI Processing Error"
                 message: "The third-party allocation model timed out. Please try again later."
+
   /suggestions/{suggestionId}:
     get:
+      tags:
+        - Logistics & AI Siting
       summary: Retrieve AI suggestion results
       parameters:
         - in: path
@@ -443,8 +508,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /users/register:
     post:
+      tags:
+        - User Management
       summary: Register a new user
       description: Creates a new user account for dashboard access.
       requestBody:
@@ -471,8 +539,11 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /users/login:
     post:
+      tags:
+        - User Management
       summary: Authenticate user
       description: Validates credentials and returns an authorization token.
       requestBody:
@@ -503,8 +574,11 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /users:
     get:
+      tags:
+        - User Management
       summary: Retrieve all users
       description: Returns a list of all users registered in the system (Admin only).
       responses:
@@ -525,8 +599,11 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /users/{userId}:
     get:
+      tags:
+        - User Management
       summary: Get user profile
       parameters:
         - in: path
@@ -551,6 +628,8 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     put:
+      tags:
+        - User Management
       summary: Update user profile
       parameters:
         - in: path
@@ -576,6 +655,8 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     delete:
+      tags:
+        - User Management
       summary: Delete user account
       parameters:
         - in: path
@@ -594,8 +675,11 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
   /users/{userId}/role:
     patch:
+      tags:
+        - User Management
       summary: Update user role
       description: Elevate or restrict a user's permissions (e.g., set role to 'health_inspector' or 'admin').
       parameters:
@@ -628,6 +712,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+
 components:
   responses:
     BadRequest:
