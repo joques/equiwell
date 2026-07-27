@@ -8,6 +8,8 @@ servers:
     description: Production Server
 
 tags:
+  - name: User Management
+    description: Authentication and role-based access control (RBAC).
   - name: Dashboard Summary
     description: High-level overview metrics for the primary UI.
   - name: Boreholes
@@ -20,10 +22,212 @@ tags:
     description: Automated sensor telemetry and proactive maintenance flagging.
   - name: Fair Allocation
     description: Community requests and demographic parity metrics.
-  - name: User Management
-    description: Authentication and role-based access control (RBAC).
 
 paths:
+  /users/register:
+    post:
+      tags:
+        - User Management
+      summary: Register a new user
+      description: Creates a new user account for dashboard access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+            example:
+              name: "John Doe"
+              email: "jdoe@equiwell.nam"
+              password: "SecurePassword123!"
+      responses:
+        '201':
+          description: User registered successfully.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/login:
+    post:
+      tags:
+        - User Management
+      summary: Authenticate user
+      description: Validates credentials and returns an authorization token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+            example:
+              email: "jdoe@equiwell.nam"
+              password: "SecurePassword123!"
+      responses:
+        '200':
+          description: Authentication successful. Returns token.
+          content:
+            application/json:
+              example:
+                token: "eyJhbGciOiJIUzI1NiIsInR5c..."
+                expires_in: 3600
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users:
+    get:
+      tags:
+        - User Management
+      summary: Retrieve all users
+      description: Returns a list of all users registered in the system (Admin only).
+      responses:
+        '200':
+          description: List of users.
+          content:
+            application/json:
+              example:
+                - id: "USR-001"
+                  name: "Jane Smith"
+                  role: "admin"
+                - id: "USR-002"
+                  name: "John Doe"
+                  role: "maintenance_crew"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}:
+    get:
+      tags:
+        - User Management
+      summary: Get user profile
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile details.
+          content:
+            application/json:
+              example:
+                id: "USR-002"
+                name: "John Doe"
+                email: "jdoe@equiwell.nam"
+                role: "maintenance_crew"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - User Management
+      summary: Update user profile
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: "Johnathan Doe"
+              email: "john.doe@equiwell.nam"
+      responses:
+        '200':
+          description: Profile updated successfully.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - User Management
+      summary: Delete user account
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}/role:
+    patch:
+      tags:
+        - User Management
+      summary: Update user role
+      description: Elevate or restrict a user's permissions (e.g., set role to 'health_inspector' or 'admin').
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [admin, health_inspector, maintenance_crew, viewer]
+            example:
+              role: "health_inspector"
+      responses:
+        '200':
+          description: Role updated successfully.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /dashboard/summary:
     get:
       tags:
@@ -504,210 +708,6 @@ paths:
                 recommended_lng: 13.4000
                 confidence_score: 89
                 justification: "Optimal balance of fractured rock geology and proximity to underserved population."
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /users/register:
-    post:
-      tags:
-        - User Management
-      summary: Register a new user
-      description: Creates a new user account for dashboard access.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                email:
-                  type: string
-                password:
-                  type: string
-            example:
-              name: "John Doe"
-              email: "jdoe@equiwell.nam"
-              password: "SecurePassword123!"
-      responses:
-        '201':
-          description: User registered successfully.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /users/login:
-    post:
-      tags:
-        - User Management
-      summary: Authenticate user
-      description: Validates credentials and returns an authorization token.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                email:
-                  type: string
-                password:
-                  type: string
-            example:
-              email: "jdoe@equiwell.nam"
-              password: "SecurePassword123!"
-      responses:
-        '200':
-          description: Authentication successful. Returns token.
-          content:
-            application/json:
-              example:
-                token: "eyJhbGciOiJIUzI1NiIsInR5c..."
-                expires_in: 3600
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /users:
-    get:
-      tags:
-        - User Management
-      summary: Retrieve all users
-      description: Returns a list of all users registered in the system (Admin only).
-      responses:
-        '200':
-          description: List of users.
-          content:
-            application/json:
-              example:
-                - id: "USR-001"
-                  name: "Jane Smith"
-                  role: "admin"
-                - id: "USR-002"
-                  name: "John Doe"
-                  role: "maintenance_crew"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /users/{userId}:
-    get:
-      tags:
-        - User Management
-      summary: Get user profile
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: User profile details.
-          content:
-            application/json:
-              example:
-                id: "USR-002"
-                name: "John Doe"
-                email: "jdoe@equiwell.nam"
-                role: "maintenance_crew"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    put:
-      tags:
-        - User Management
-      summary: Update user profile
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            example:
-              name: "Johnathan Doe"
-              email: "john.doe@equiwell.nam"
-      responses:
-        '200':
-          description: Profile updated successfully.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    delete:
-      tags:
-        - User Management
-      summary: Delete user account
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Account deleted.
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /users/{userId}/role:
-    patch:
-      tags:
-        - User Management
-      summary: Update user role
-      description: Elevate or restrict a user's permissions (e.g., set role to 'health_inspector' or 'admin').
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                role:
-                  type: string
-                  enum: [admin, health_inspector, maintenance_crew, viewer]
-            example:
-              role: "health_inspector"
-      responses:
-        '200':
-          description: Role updated successfully.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
