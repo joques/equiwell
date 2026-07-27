@@ -14,14 +14,14 @@ tags:
     description: High-level overview metrics for the primary UI.
   - name: Boreholes
     description: Core CRUD operations and mapping data for physical water infrastructure.
-  - name: Water Quality & Usage
-    description: Tracking aquifer health, usage quotas, and lab test results.
+  - name: Fair Allocation
+    description: Community requests and demographic parity metrics.
   - name: Logistics & AI Siting
     description: Endpoints powering off-road routing and AI-driven borehole siting.
   - name: IoT & Alerts
     description: Automated sensor telemetry and proactive maintenance flagging.
-  - name: Fair Allocation
-    description: Community requests and demographic parity metrics.
+  - name: Water Quality & Usage
+    description: Tracking aquifer health, usage quotas, and lab test results.
 
 paths:
   /users/register:
@@ -378,74 +378,44 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /boreholes/{boreholeId}/lab-tests:
-    post:
-      tags:
-        - Water Quality & Usage
-      summary: Upload laboratory water quality tests
-      description: Allows health inspectors or engineers to log official physical water test results (e.g., E. coli, Arsenic). Critical alerts can automatically mark a borehole as unsafe.
-      parameters:
-        - in: path
-          name: boreholeId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                test_date:
-                  type: string
-                  format: date
-                e_coli_detected:
-                  type: boolean
-                arsenic_mg_l:
-                  type: number
-                fluoride_mg_l:
-                  type: number
-                is_safe_for_consumption:
-                  type: boolean
-            example:
-              test_date: "2026-07-20"
-              e_coli_detected: false
-              arsenic_mg_l: 0.005
-              fluoride_mg_l: 1.2
-              is_safe_for_consumption: true
-      responses:
-        '201':
-          description: Lab test recorded successfully.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /boreholes/{boreholeId}/usage-quotas:
+  /allocation-metrics:
     get:
       tags:
-        - Water Quality & Usage
-      summary: Retrieve water usage vs sustainable quota
-      description: Tracks how much water the community has pumped this month against the sustainable limit of the aquifer to enforce fair and safe extraction rates.
-      parameters:
-        - in: path
-          name: boreholeId
-          required: true
-          schema:
-            type: string
+        - Fair Allocation
+      summary: Retrieve fair allocation metrics
+      description: Fetches demographic data (population, distance to water) to assess fair borehole allocation.
       responses:
         '200':
-          description: Current month's usage compared to sustainable quota limit.
+          description: Allocation metrics data.
           content:
             application/json:
               example:
-                monthly_quota_liters: 150000
-                current_usage_liters: 125000
-                status: "within_limits"
-        '404':
-          $ref: '#/components/responses/NotFound'
+                region: "Okangwati"
+                population: 3500
+                average_distance_to_water_km: 8.5
+                fairness_score: 4.2
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /community-requests:
+    post:
+      tags:
+        - Fair Allocation
+      summary: Submit a community water request
+      description: Allows local leaders or communities to officially request water intervention.
+      requestBody:
+        content:
+          application/json:
+            example:
+              community_name: "Opuwo Rural"
+              contact_person: "Chief Kampi"
+              issue: "Existing well has dried up"
+              urgency: "high"
+      responses:
+        '201':
+          description: Request logged successfully.
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -547,95 +517,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /boreholes/{boreholeId}/telemetry:
-    post:
-      tags:
-        - IoT & Alerts
-      summary: Receive IoT Sensor Telemetry
-      description: Endpoint for automated sensors to push real-time data like water drawdown, recovery time, and energy usage/fuel level.
-      parameters:
-        - in: path
-          name: boreholeId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            example:
-              drawdown_m: 2.4
-              recovery_time_mins: 45
-              solar_battery_level: 88
-      responses:
-        '201':
-          description: Telemetry logged successfully.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /maintenance-alerts:
-    get:
-      tags:
-        - IoT & Alerts
-      summary: Retrieve maintenance alerts
-      description: Returns a list of boreholes currently broken or flagged as high-risk for failure based on the light data store.
-      responses:
-        '200':
-          description: List of alerts.
-          content:
-            application/json:
-              example:
-                - borehole_id: "BH-0045"
-                  status: "broken"
-                  issue: "Pump failure"
-                  reported_at: "2026-07-21T08:00:00Z"
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /allocation-metrics:
-    get:
-      tags:
-        - Fair Allocation
-      summary: Retrieve fair allocation metrics
-      description: Fetches demographic data (population, distance to water) to assess fair borehole allocation.
-      responses:
-        '200':
-          description: Allocation metrics data.
-          content:
-            application/json:
-              example:
-                region: "Okangwati"
-                population: 3500
-                average_distance_to_water_km: 8.5
-                fairness_score: 4.2
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /community-requests:
-    post:
-      tags:
-        - Fair Allocation
-      summary: Submit a community water request
-      description: Allows local leaders or communities to officially request water intervention.
-      requestBody:
-        content:
-          application/json:
-            example:
-              community_name: "Opuwo Rural"
-              contact_person: "Chief Kampi"
-              issue: "Existing well has dried up"
-              urgency: "high"
-      responses:
-        '201':
-          description: Request logged successfully.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
   /factors:
     get:
       tags:
@@ -708,6 +589,125 @@ paths:
                 recommended_lng: 13.4000
                 confidence_score: 89
                 justification: "Optimal balance of fractured rock geology and proximity to underserved population."
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/telemetry:
+    post:
+      tags:
+        - IoT & Alerts
+      summary: Receive IoT Sensor Telemetry
+      description: Endpoint for automated sensors to push real-time data like water drawdown, recovery time, and energy usage/fuel level.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            example:
+              drawdown_m: 2.4
+              recovery_time_mins: 45
+              solar_battery_level: 88
+      responses:
+        '201':
+          description: Telemetry logged successfully.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /maintenance-alerts:
+    get:
+      tags:
+        - IoT & Alerts
+      summary: Retrieve maintenance alerts
+      description: Returns a list of boreholes currently broken or flagged as high-risk for failure based on the light data store.
+      responses:
+        '200':
+          description: List of alerts.
+          content:
+            application/json:
+              example:
+                - borehole_id: "BH-0045"
+                  status: "broken"
+                  issue: "Pump failure"
+                  reported_at: "2026-07-21T08:00:00Z"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/lab-tests:
+    post:
+      tags:
+        - Water Quality & Usage
+      summary: Upload laboratory water quality tests
+      description: Allows health inspectors or engineers to log official physical water test results (e.g., E. coli, Arsenic). Critical alerts can automatically mark a borehole as unsafe.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                test_date:
+                  type: string
+                  format: date
+                e_coli_detected:
+                  type: boolean
+                arsenic_mg_l:
+                  type: number
+                fluoride_mg_l:
+                  type: number
+                is_safe_for_consumption:
+                  type: boolean
+            example:
+              test_date: "2026-07-20"
+              e_coli_detected: false
+              arsenic_mg_l: 0.005
+              fluoride_mg_l: 1.2
+              is_safe_for_consumption: true
+      responses:
+        '201':
+          description: Lab test recorded successfully.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/usage-quotas:
+    get:
+      tags:
+        - Water Quality & Usage
+      summary: Retrieve water usage vs sustainable quota
+      description: Tracks how much water the community has pumped this month against the sustainable limit of the aquifer to enforce fair and safe extraction rates.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current month's usage compared to sustainable quota limit.
+          content:
+            application/json:
+              example:
+                monthly_quota_liters: 150000
+                current_usage_liters: 125000
+                status: "within_limits"
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
