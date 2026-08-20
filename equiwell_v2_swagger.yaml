@@ -1,0 +1,1547 @@
+openapi: 3.0.0
+info:
+  title: Equi Well API (v2 - Role-Based Access Control & AI Extension)
+  description: RESTful API for water management, fair borehole allocation, and logistical routing in the Kunene Region, Namibia.
+  version: 2.0.0
+servers:
+  - url: https://api.equiwell.nam.com/v1
+    description: Production Server
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: User Management
+    description: Authentication, user registration, profiles, and role management.
+  - name: Dashboard Summary
+    description: High-level metrics and statistics for dashboard widgets.
+  - name: Borehole Management
+    description: Core CRUD operations, mapping data, and borehole infrastructure attributes.
+  - name: Health Inspection
+    description: Laboratory water quality testing (E. coli, fluoride, arsenic) and usage limits.
+  - name: Maintenance & IoT
+    description: Real-time sensor telemetry, maintenance alerts, and repair logs.
+  - name: Fair Allocation
+    description: Community water scarcity requests and demographic equity scores.
+  - name: Logistics & Routing
+    description: Google Maps API route navigation, terrain accessibility, and rig logistics.
+  - name: AI Siting & Yield
+    description: ML yield predictions, spatial siting optimization, and field data ingestion.
+
+paths:
+  /users/register:
+    post:
+      tags:
+        - User Management
+      summary: Register a new user account
+      description: Creates a user account. Requires Admin approval or defaults to Viewer role.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - password
+              properties:
+                name:
+                  type: string
+                  example: "Reinhold Ndevahoma"
+                email:
+                  type: string
+                  format: email
+                  example: "rndevahoma@equiwell.nam"
+                password:
+                  type: string
+                  format: password
+                  example: "SecurePassword123!"
+            example:
+              name: "Reinhold Ndevahoma"
+              email: "rndevahoma@equiwell.nam"
+              password: "SecurePassword123!"
+      responses:
+        '201':
+          description: User registered successfully.
+          content:
+            application/json:
+              example:
+                message: "User registered successfully. Account pending role activation."
+                user_id: "USR-001"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/login:
+    post:
+      tags:
+        - User Management
+      summary: Authenticate user and issue JWT
+      description: Authenticates user credentials and returns a signed JWT token containing role claims.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  example: "rndevahoma@equiwell.nam"
+                password:
+                  type: string
+                  example: "SecurePassword123!"
+            example:
+              email: "rndevahoma@equiwell.nam"
+              password: "SecurePassword123!"
+      responses:
+        '200':
+          description: Authentication successful. Returns JWT token with role claims.
+          content:
+            application/json:
+              example:
+                token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiVVNSLTAwMSIsInJvbGUiOiJhZG1pbiJ9..."
+                token_type: "Bearer"
+                expires_in: 3600
+                user:
+                  id: "USR-001"
+                  name: "Reinhold Ndevahoma"
+                  role: "admin"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users:
+    get:
+      tags:
+        - User Management
+      summary: List all system users (Admin Only)
+      description: Retrieves a full list of registered users and their assigned roles.
+      responses:
+        '200':
+          description: List of registered users.
+          content:
+            application/json:
+              example:
+                - id: "USR-001"
+                  name: "Reinhold Ndevahoma"
+                  email: "rndevahoma@equiwell.nam"
+                  role: "admin"
+                - id: "USR-002"
+                  name: "Tate Peter"
+                  email: "peter@health.gov.na"
+                  role: "health_inspector"
+                - id: "USR-003"
+                  name: "Kavetu Maintenance"
+                  email: "kavetu@equiwell.nam"
+                  role: "maintenance_crew"
+                - id: "USR-004"
+                  name: "Chief Kampi"
+                  email: "kampi@kunene.community"
+                  role: "community_leader"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}:
+    get:
+      tags:
+        - User Management
+      summary: Get user profile details
+      description: Accessible by the user themselves or by an Admin.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          example: "USR-002"
+      responses:
+        '200':
+          description: User profile details.
+          content:
+            application/json:
+              example:
+                id: "USR-002"
+                name: "Tate Peter"
+                email: "peter@health.gov.na"
+                role: "health_inspector"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - User Management
+      summary: Update user profile details (Admin or Account Owner)
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          example: "USR-002"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+            example:
+              name: "Tate Peter Shilongo"
+              email: "peter.shilongo@health.gov.na"
+      responses:
+        '200':
+          description: Profile updated successfully.
+          content:
+            application/json:
+              example:
+                message: "User profile updated successfully."
+                user_id: "USR-002"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - User Management
+      summary: Delete user account (Admin Only)
+      description: Strictly restricted to Admin users. Permanently deletes or deactivates a user.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          example: "USR-004"
+      responses:
+        '200':
+          description: User account deleted.
+          content:
+            application/json:
+              example:
+                message: "User USR-004 successfully removed from the system."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}/role:
+    patch:
+      tags:
+        - User Management
+      summary: Modify user role and authorization permissions (Admin Only)
+      description: Strictly restricted to Admin users. Changes user role in the RBAC hierarchy.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          example: "USR-002"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum:
+                    - admin
+                    - health_inspector
+                    - maintenance_crew
+                    - community_leader
+                    - viewer
+            example:
+              role: "health_inspector"
+      responses:
+        '200':
+          description: Role updated successfully.
+          content:
+            application/json:
+              example:
+                message: "User role for USR-002 updated to health_inspector."
+                user_id: "USR-002"
+                new_role: "health_inspector"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dashboard/summary:
+    get:
+      tags:
+        - Dashboard Summary
+      summary: Retrieve high-level dashboard statistics
+      description: Accessible by all roles. Returns summary statistics and implementation timeline metrics for dashboard widgets.
+      responses:
+        '200':
+          description: Summary statistics object.
+          content:
+            application/json:
+              example:
+                total_boreholes: 142
+                working: 110
+                broken: 32
+                communities_at_risk: 8
+                recent_installations_this_year: 14
+                latest_borehole_implemented_date: "2026-06-18"
+                last_updated: "2026-08-19T12:00:00Z"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes:
+    get:
+      tags:
+        - Borehole Management
+      summary: Retrieve all mapped boreholes
+      description: Returns list of boreholes including implementation/drilling dates. Viewers only see visible boreholes.
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum:
+              - working
+              - broken
+              - under_maintenance
+          example: "working"
+        - in: query
+          name: is_visible
+          schema:
+            type: boolean
+          example: true
+        - in: query
+          name: pump_type
+          schema:
+            type: string
+            enum:
+              - solar
+              - diesel
+              - windmill
+              - hand_pump
+          example: "solar"
+      responses:
+        '200':
+          description: List of mapped boreholes with implementation dates.
+          content:
+            application/json:
+              example:
+                - id: "BH-1002"
+                  name: "Okangwati Community Well 1"
+                  lat: -18.2341
+                  lng: 13.8821
+                  status: "working"
+                  pump_type: "solar"
+                  yield_lph: 1500
+                  implemented_date: "2024-03-15"
+                  is_visible: true
+                - id: "BH-1003"
+                  name: "Sesfontein Rural Pump"
+                  lat: -19.1214
+                  lng: 13.6189
+                  status: "broken"
+                  pump_type: "diesel"
+                  yield_lph: 900
+                  implemented_date: "2023-11-20"
+                  is_visible: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Borehole Management
+      summary: Register a newly drilled borehole (Admin / Maintenance Lead)
+      description: Registers new borehole asset in the light data store with implementation date.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - lat
+                - lng
+                - depth_m
+                - pump_type
+                - yield_lph
+                - implemented_date
+              properties:
+                name:
+                  type: string
+                lat:
+                  type: number
+                lng:
+                  type: number
+                depth_m:
+                  type: number
+                pump_type:
+                  type: string
+                  enum: [solar, diesel, windmill, hand_pump]
+                yield_lph:
+                  type: integer
+                implemented_date:
+                  type: string
+                  format: date
+                  description: Date when the borehole was drilled and implemented/commissioned
+                installed_by:
+                  type: string
+            example:
+              name: "Opuwo North Solar Well"
+              lat: -18.4500
+              lng: 13.9000
+              depth_m: 90
+              pump_type: "solar"
+              yield_lph: 2800
+              implemented_date: "2026-08-10"
+              installed_by: "EquiWell Field Team"
+      responses:
+        '201':
+          description: Borehole successfully registered.
+          content:
+            application/json:
+              example:
+                message: "Borehole successfully registered."
+                borehole_id: "BH-1045"
+                implemented_date: "2026-08-10"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}:
+    get:
+      tags:
+        - Borehole Management
+      summary: Get details of a specific borehole
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      responses:
+        '200':
+          description: Detailed metrics for the borehole including implementation date.
+          content:
+            application/json:
+              example:
+                id: "BH-1002"
+                name: "Okangwati Community Well 1"
+                depth_m: 85
+                water_quality: "potable"
+                implemented_date: "2024-03-15"
+                last_maintained: "2026-05-12"
+                pump_type: "solar"
+                status: "working"
+                is_visible: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Borehole Management
+      summary: Fully alter borehole infrastructure data (Admin Only)
+      description: Strictly restricted to Admin users. Modifies core engineering attributes.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                depth_m:
+                  type: number
+                pump_type:
+                  type: string
+                  enum: [solar, diesel, windmill, hand_pump]
+                yield_lph:
+                  type: integer
+                implemented_date:
+                  type: string
+                  format: date
+            example:
+              name: "Okangwati Primary Deep Well"
+              depth_m: 110
+              pump_type: "solar"
+              yield_lph: 3200
+              implemented_date: "2024-03-15"
+      responses:
+        '200':
+          description: Borehole data fully updated.
+          content:
+            application/json:
+              example:
+                message: "Borehole BH-1002 attributes successfully updated."
+                borehole_id: "BH-1002"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags:
+        - Borehole Management
+      summary: Partially update borehole status or visibility (Admin & Maintenance Crew)
+      description: Maintenance crew can toggle status; Admin can toggle visibility.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [working, broken, under_maintenance]
+                is_visible:
+                  type: boolean
+            example:
+              status: "broken"
+              is_visible: true
+      responses:
+        '200':
+          description: Borehole updated successfully.
+          content:
+            application/json:
+              example:
+                message: "Borehole status updated."
+                borehole_id: "BH-1002"
+                status: "broken"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Borehole Management
+      summary: Delete borehole record (Admin Only)
+      description: Strictly restricted to Admin users. Removes or archives physical borehole record.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      responses:
+        '200':
+          description: Borehole permanently deleted or archived.
+          content:
+            application/json:
+              example:
+                message: "Borehole BH-1002 permanently archived."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/lab-tests:
+    get:
+      tags:
+        - Health Inspection
+      summary: View historical water quality lab tests
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      responses:
+        '200':
+          description: Historical water lab reports.
+          content:
+            application/json:
+              example:
+                - test_id: "LAB-2026-081"
+                  test_date: "2026-07-20"
+                  inspector_id: "USR-002"
+                  e_coli_detected: false
+                  arsenic_mg_l: 0.004
+                  fluoride_mg_l: 1.1
+                  is_safe_for_consumption: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Health Inspection
+      summary: Upload certified laboratory water quality test (Health Inspector / Admin)
+      description: Restricted to Health Inspectors and Admins. Updates safety flags on public maps.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - test_date
+                - e_coli_detected
+                - arsenic_mg_l
+                - fluoride_mg_l
+                - is_safe_for_consumption
+              properties:
+                test_date:
+                  type: string
+                  format: date
+                e_coli_detected:
+                  type: boolean
+                arsenic_mg_l:
+                  type: number
+                fluoride_mg_l:
+                  type: number
+                is_safe_for_consumption:
+                  type: boolean
+            example:
+              test_date: "2026-08-15"
+              e_coli_detected: false
+              arsenic_mg_l: 0.005
+              fluoride_mg_l: 1.2
+              is_safe_for_consumption: true
+      responses:
+        '201':
+          description: Laboratory test logged successfully.
+          content:
+            application/json:
+              example:
+                message: "Lab test registered successfully."
+                test_id: "LAB-2026-092"
+                borehole_status: "potable"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/usage-quotas:
+    get:
+      tags:
+        - Health Inspection
+      summary: Retrieve monthly water consumption vs sustainable aquifer quota
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      responses:
+        '200':
+          description: Current extraction versus quota.
+          content:
+            application/json:
+              example:
+                borehole_id: "BH-1002"
+                monthly_quota_liters: 150000
+                current_usage_liters: 125000
+                status: "within_limits"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/telemetry:
+    post:
+      tags:
+        - Maintenance & IoT
+      summary: Ingest automated IoT sensor telemetry
+      description: Endpoint for IoT pump sensors and field technicians to log drawdown, recovery, and battery.
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - drawdown_m
+                - recovery_time_mins
+                - solar_battery_level
+              properties:
+                drawdown_m:
+                  type: number
+                recovery_time_mins:
+                  type: integer
+                solar_battery_level:
+                  type: integer
+                flow_rate_lpm:
+                  type: number
+            example:
+              drawdown_m: 2.4
+              recovery_time_mins: 45
+              solar_battery_level: 88
+              flow_rate_lpm: 45.2
+      responses:
+        '201':
+          description: Telemetry logged successfully.
+          content:
+            application/json:
+              example:
+                message: "Telemetry record stored."
+                telemetry_id: "TEL-2026-991"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /maintenance-alerts:
+    get:
+      tags:
+        - Maintenance & IoT
+      summary: Retrieve active maintenance alerts and broken boreholes
+      responses:
+        '200':
+          description: List of maintenance alerts.
+          content:
+            application/json:
+              example:
+                - borehole_id: "BH-0045"
+                  borehole_name: "Sesfontein Pump 2"
+                  status: "broken"
+                  issue: "Solar Inverter Fault"
+                  reported_at: "2026-08-18T08:00:00Z"
+                  urgency: "high"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/history:
+    get:
+      tags:
+        - Maintenance & IoT
+      summary: Retrieve longitudinal yield and maintenance history
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      responses:
+        '200':
+          description: Historical performance arrays.
+          content:
+            application/json:
+              example:
+                - year: 2024
+                  average_yield_lph: 1600
+                - year: 2025
+                  average_yield_lph: 1550
+                - year: 2026
+                  average_yield_lph: 1500
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /allocation-metrics:
+    get:
+      tags:
+        - Fair Allocation
+      summary: Retrieve demographic water allocation metrics
+      responses:
+        '200':
+          description: Scarcity and fairness indicators per region.
+          content:
+            application/json:
+              example:
+                region: "Okangwati"
+                population: 3500
+                working_boreholes: 2
+                average_distance_to_water_km: 8.5
+                fairness_score: 4.2
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /community-requests:
+    get:
+      tags:
+        - Fair Allocation
+      summary: List all community water assistance requests
+      responses:
+        '200':
+          description: List of submitted requests.
+          content:
+            application/json:
+              example:
+                - request_id: "COM-REQ-101"
+                  community_name: "Opuwo Rural"
+                  contact_person: "Chief Kampi"
+                  issue: "Existing well has dried up"
+                  urgency: "high"
+                  status: "under_review"
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Fair Allocation
+      summary: Submit community water request (Community Leader / Admin)
+      description: Allows verified community representatives to submit formal requests for borehole interventions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - community_name
+                - contact_person
+                - issue
+                - urgency
+              properties:
+                community_name:
+                  type: string
+                contact_person:
+                  type: string
+                contact_phone:
+                  type: string
+                issue:
+                  type: string
+                urgency:
+                  type: string
+                  enum: [low, moderate, high, critical]
+            example:
+              community_name: "Opuwo Rural"
+              contact_person: "Chief Kampi"
+              contact_phone: "+264 81 123 4567"
+              issue: "Existing well has dried up"
+              urgency: "high"
+      responses:
+        '201':
+          description: Request logged successfully.
+          content:
+            application/json:
+              example:
+                message: "Community request registered."
+                request_id: "COM-REQ-102"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /boreholes/{boreholeId}/logistics:
+    get:
+      tags:
+        - Logistics & Routing
+      summary: Retrieve terrain logistics and accessibility requirements
+      parameters:
+        - in: path
+          name: boreholeId
+          required: true
+          schema:
+            type: string
+          example: "BH-1002"
+      responses:
+        '200':
+          description: Logistics details.
+          content:
+            application/json:
+              example:
+                terrain_difficulty: "high"
+                vehicle_requirement: "heavy_4x4_drilling_rig"
+                seasonal_warning: "Impassable during summer rains"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /routes/google-maps-directions:
+    post:
+      tags:
+        - Logistics & Routing
+      summary: Generate Google Maps navigation route to borehole or drilling site
+      description: Calls Google Maps Directions API to compute navigation from vehicle GPS to borehole or drilling site.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - origin_lat
+                - origin_lng
+              properties:
+                origin_lat:
+                  type: number
+                origin_lng:
+                  type: number
+                destination_borehole_id:
+                  type: string
+                destination_custom_lat:
+                  type: number
+                destination_custom_lng:
+                  type: number
+                travel_mode:
+                  type: string
+                  enum:
+                    - DRIVING
+                    - OFF_ROAD_4X4
+                    - HEAVY_TRUCK
+            example:
+              origin_lat: -18.0583
+              origin_lng: 13.8402
+              destination_borehole_id: "BH-1002"
+              travel_mode: "OFF_ROAD_4X4"
+      responses:
+        '200':
+          description: Google Maps navigation object with polyline and deep link.
+          content:
+            application/json:
+              example:
+                destination_name: "Okangwati Community Well 1"
+                destination_coords:
+                  - -18.2341
+                  - 13.8821
+                distance_km: 42.6
+                duration_formatted: "1 hour 25 mins"
+                google_maps_url: "https://www.google.com/maps/dir/?api=1&origin=-18.0583,13.8402&destination=-18.2341,13.8821&travelmode=driving"
+                encoded_polyline: "_p~iF~ps|U_ulLnnqC_mqN..."
+                turn_by_turn_steps:
+                  - instruction: "Head north on C43 toward Opuwo"
+                    distance: "12.4 km"
+                  - instruction: "Turn left onto D3705 off-road track"
+                    distance: "30.2 km"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /routes/calculate:
+    post:
+      tags:
+        - Logistics & Routing
+      summary: Calculate safe off-road route avoiding river floods
+      description: Internal pathfinder calculating tracks avoiding flooded ephemeral riverbeds and sand dunes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - start_coordinates
+                - destination_borehole_id
+                - vehicle_type
+              properties:
+                start_coordinates:
+                  type: string
+                destination_borehole_id:
+                  type: string
+                vehicle_type:
+                  type: string
+                  enum: [light_4x4, heavy_drilling_rig, maintenance_truck]
+            example:
+              start_coordinates: "-18.000,13.500"
+              destination_borehole_id: "BH-1002"
+              vehicle_type: "light_4x4"
+      responses:
+        '200':
+          description: Safe path coordinates.
+          content:
+            application/json:
+              example:
+                route_id: "RT-8842"
+                estimated_time_hours: 4.5
+                waypoints:
+                  - [-18.000, 13.500]
+                  - [-18.100, 13.600]
+                  - [-18.234, 13.882]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /factors:
+    get:
+      tags:
+        - AI Siting & Yield
+      summary: Retrieve siting environmental and geological factors
+      responses:
+        '200':
+          description: List of siting criteria.
+          content:
+            application/json:
+              example:
+                geology: "Fractured Basalt & Dolomite"
+                recharge_rate: "Low to Moderate"
+                aquifer_depth_est_m: "70 - 110"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /suggestions/generate:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Request AI borehole siting suggestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_area
+                - required_yield
+                - priority_metric
+              properties:
+                target_area:
+                  type: string
+                required_yield:
+                  type: string
+                  enum: [low, moderate, high]
+                priority_metric:
+                  type: string
+            example:
+              target_area: "Okangwati"
+              required_yield: "moderate"
+              priority_metric: "fair_allocation_distance"
+      responses:
+        '202':
+          description: Request accepted by AI model for spatial processing.
+          content:
+            application/json:
+              example:
+                suggestion_id: "SUG-9988"
+                status: "processing"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /suggestions/{suggestionId}:
+    get:
+      tags:
+        - AI Siting & Yield
+      summary: Retrieve AI suggestion results
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema:
+            type: string
+          example: "SUG-9988"
+      responses:
+        '200':
+          description: Completed AI suggestion.
+          content:
+            application/json:
+              example:
+                suggestion_id: "SUG-9988"
+                status: "complete"
+                recommended_lat: -17.9500
+                recommended_lng: 13.4000
+                confidence_score: 89
+                justification: "Optimal balance of fractured rock geology and proximity to underserved population."
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ai/predict-yield:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Predict water yield and strike depth via trained ML drilling model
+      description: Evaluates exact coordinates against the AI database underground yield maps and drilling logs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - latitude
+                - longitude
+              properties:
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+                target_depth_limit_m:
+                  type: number
+            example:
+              latitude: -17.4382
+              longitude: 13.2751
+              target_depth_limit_m: 120
+      responses:
+        '200':
+          description: Yield prediction output.
+          content:
+            application/json:
+              example:
+                predicted_yield_lph: 3200
+                expected_water_strike_depth_m: 68.5
+                static_water_level_m: 24.0
+                geological_formation: "Fractured Dolomite / Quartzite"
+                confidence_score: 0.89
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ai/aquifer-depletion-risk:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Simulate multi-year aquifer depletion and recharge risk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - borehole_id
+                - planned_pumping_hours_per_day
+                - planned_discharge_rate_lph
+              properties:
+                borehole_id:
+                  type: string
+                planned_pumping_hours_per_day:
+                  type: number
+                planned_discharge_rate_lph:
+                  type: integer
+            example:
+              borehole_id: "BH-1002"
+              planned_pumping_hours_per_day: 8
+              planned_discharge_rate_lph: 3000
+      responses:
+        '200':
+          description: Depletion simulation result.
+          content:
+            application/json:
+              example:
+                sustainability_status: "Sustainable"
+                depletion_risk_level: "Low"
+                estimated_annual_drawdown_m: 0.35
+                recharge_replenishment_rate: "Moderate"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ai/siting-tasks/async:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Submit asynchronous high-compute spatial siting optimization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_region
+                - required_yield_lph
+                - bounding_polygon
+                - callback_url
+              properties:
+                target_region:
+                  type: string
+                required_yield_lph:
+                  type: integer
+                bounding_polygon:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: number
+                callback_url:
+                  type: string
+            example:
+              target_region: "Kunene North"
+              required_yield_lph: 2500
+              bounding_polygon:
+                - [-17.50, 13.20]
+                - [-17.35, 13.20]
+                - [-17.35, 13.35]
+                - [-17.50, 13.35]
+              callback_url: "https://api.equiwell.nam.com/v1/callbacks/ai/siting-complete"
+      responses:
+        '202':
+          description: Async job submitted.
+          content:
+            application/json:
+              example:
+                task_id: "TASK-AI-8831"
+                status: "queued"
+                estimated_duration_sec: 45
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /callbacks/ai/siting-complete:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Webhook receiver for completed AI siting computations
+      description: Internal webhook called by external AI compute engine to push final siting results.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_id
+                - status
+                - top_candidate_sites
+              properties:
+                task_id:
+                  type: string
+                status:
+                  type: string
+                top_candidate_sites:
+                  type: array
+                  items:
+                    type: object
+            example:
+              task_id: "TASK-AI-8831"
+              status: "completed"
+              top_candidate_sites:
+                - latitude: -17.4382
+                  longitude: 13.2751
+                  predicted_yield_lph: 2800
+                  fairness_score: 92
+      responses:
+        '200':
+          description: Webhook received and processed.
+          content:
+            application/json:
+              example:
+                message: "Webhook processed and siting suggestions stored."
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ai/training-data/borehole-logs:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Ingest field drilling logs into AI training database (Field Data Collection)
+      description: Ingests raw stratigraphy and drilling records from field data collection into the AI database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - borehole_code
+                - coordinates
+                - drilling_records
+                - tested_yield_lph
+                - static_water_level_m
+              properties:
+                borehole_code:
+                  type: string
+                coordinates:
+                  type: object
+                  properties:
+                    lat:
+                      type: number
+                    lng:
+                      type: number
+                drilling_records:
+                  type: object
+                  properties:
+                    total_depth_m:
+                      type: number
+                    water_strike_depth_m:
+                      type: number
+                    strata_layers:
+                      type: array
+                      items:
+                        type: object
+                tested_yield_lph:
+                  type: integer
+                static_water_level_m:
+                  type: number
+            example:
+              borehole_code: "WW-2026-KUN-09"
+              coordinates:
+                lat: -17.4410
+                lng: 13.2802
+              drilling_records:
+                total_depth_m: 95.0
+                water_strike_depth_m: 62.0
+                strata_layers:
+                  - from_m: 0
+                    to_m: 12
+                    lithology: "Alluvial Sand & Gravel"
+                  - from_m: 12
+                    to_m: 60
+                    lithology: "Weathered Basalt"
+                  - from_m: 60
+                    to_m: 95
+                    lithology: "Fractured Granite"
+              tested_yield_lph: 3400
+              static_water_level_m: 18.5
+      responses:
+        '201':
+          description: Drilling log successfully ingested into AI database.
+          content:
+            application/json:
+              example:
+                message: "Drilling log successfully stored in AI training database."
+                records_indexed: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ai/training-data/yield-maps:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Ingest GIS underground water yield raster/vector maps (Admin / AI Engineers)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - map_layer_name
+                - format
+                - spatial_resolution_m
+                - data_url
+              properties:
+                map_layer_name:
+                  type: string
+                format:
+                  type: string
+                spatial_resolution_m:
+                  type: integer
+                data_url:
+                  type: string
+            example:
+              map_layer_name: "Kunene_Aquifer_Yield_2026_Q3"
+              format: "GeoTIFF"
+              spatial_resolution_m: 30
+              data_url: "https://storage.equiwell.nam.com/layers/kunene_yield_q3.tif"
+      responses:
+        '201':
+          description: GIS map layer ingested.
+          content:
+            application/json:
+              example:
+                message: "GIS yield map successfully indexed in spatial engine."
+                layer_id: "LAYER-YIELD-2026-03"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ai/routes/terrain-feasibility:
+    post:
+      tags:
+        - AI Siting & Yield
+      summary: Evaluate off-road terrain feasibility for heavy 20-ton drilling rigs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - start_coordinates
+                - target_site_coordinates
+                - vehicle_weight_tonnes
+                - max_climbing_gradient_pct
+              properties:
+                start_coordinates:
+                  type: array
+                  items:
+                    type: number
+                target_site_coordinates:
+                  type: array
+                  items:
+                    type: number
+                vehicle_weight_tonnes:
+                  type: number
+                max_climbing_gradient_pct:
+                  type: integer
+            example:
+              start_coordinates:
+                - -18.06
+                - 13.84
+              target_site_coordinates:
+                - -17.43
+                - 13.27
+              vehicle_weight_tonnes: 22.5
+              max_climbing_gradient_pct: 15
+      responses:
+        '200':
+          description: Terrain analysis result.
+          content:
+            application/json:
+              example:
+                is_feasible: true
+                risk_score: "Moderate"
+                high_risk_segments:
+                  - segment_km: "14.2 - 16.8"
+                    hazard_type: "Deep Sand Dunes"
+                    recommended_action: "Tire deflation required"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JSON Web Token containing role claims (admin, health_inspector, maintenance_crew, community_leader, viewer).
+
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid input parameters or missing required fields.
+      content:
+        application/json:
+          example:
+            error: "Invalid Parameter"
+            message: "The provided payload or query parameters are invalid or improperly formatted."
+    Unauthorized:
+      description: Unauthorized - Missing or invalid authentication token.
+      content:
+        application/json:
+          example:
+            error: "Unauthorized"
+            message: "You must provide a valid authentication token to access this resource."
+    Forbidden:
+      description: Forbidden - Insufficient permissions for the requested user role.
+      content:
+        application/json:
+          example:
+            error: "Forbidden"
+            message: "Your user role does not have permission to execute this operation."
+    NotFound:
+      description: Not Found - The requested resource does not exist.
+      content:
+        application/json:
+          example:
+            error: "Not Found"
+            message: "The specified resource ID could not be located in the database."
+    InternalError:
+      description: Internal Server Error - Unexpected server or database failure.
+      content:
+        application/json:
+          example:
+            error: "Server Error"
+            message: "An unexpected internal error occurred."

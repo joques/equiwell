@@ -1,3 +1,21 @@
-.zig-cache/
+# Zig build artifacts
 zig-out/
-*.o
+.zig-cache/
+*.exe
+*.pdb
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# Worksheet and compiled documents (not committed to repo)
+*.docx
+*.pdf
+*Worksheet*
+*worksheet*
+WORKSHEET*
+generate_worksheet_doc.py
+
+# OS files
+.DS_Store
+Thumbs.db
