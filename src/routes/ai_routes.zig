@@ -1,145 +1,168 @@
 const std = @import("std");
-const DataStore = @import("../db/store.zig").DataStore;
-const SitingSuggestion = @import("../models/ai_siting.zig").SitingSuggestion;
-const BoreholeDrillingLog = @import("../models/ai_siting.zig").BoreholeDrillingLog;
-const jwt = @import("../auth/jwt.zig");
-const http_util = @import("../utils/http_util.zig");
+const AiService = @import("../services/ai_service.zig").AiService;
+const Request = @import("../server/request.zig").Request;
+const Response = @import("../server/response.zig").Response;
+const Middleware = @import("../server/middleware.zig").Middleware;
+const Rbac = @import("../auth/rbac.zig").Rbac;
 
-/// Handles `GET /factors` - Returns multi-criteria geological and environmental weighting factors for borehole siting.
-pub fn handleGetFactors(allocator: std.mem.Allocator, response: *const http_util.Response) !void {
-    const res_json = "{\"geological_factors\":[{\"name\":\"Lineament Density\",\"weight\":0.35,\"description\":\"Fault lines and fracture zones\"},{\"name\":\"Lithology\",\"weight\":0.25,\"description\":\"Rock type permeability\"}],\"environmental_factors\":[{\"name\":\"Rainfall Recharge\",\"weight\":0.20,\"description\":\"Mean annual precipitation\"},{\"name\":\"Slope Gradient\",\"weight\":0.20,\"description\":\"Terrain runoff potential\"}]}";
-    _ = allocator;
-    try http_util.sendOk(response, res_json);
+/// GET /factors
+pub fn handleGetFactors(service: *const AiService, req: *const Request, res: *const Response) !void {
+    _ = service;
+    _ = req;
+    const json =
+        "{\"geological_factors\":[{\"name\":\"Lineament Density\",\"weight\":0.35,\"description\":\"Fault lines and fracture zones\"},{\"name\":\"Lithology\",\"weight\":0.25,\"description\":\"Rock type permeability\"}],\"environmental_factors\":[{\"name\":\"Rainfall Recharge\",\"weight\":0.20,\"description\":\"Mean annual precipitation\"},{\"name\":\"Slope Gradient\",\"weight\":0.20,\"description\":\"Terrain runoff potential\"}]}";
+    try res.ok(json);
 }
 
-/// Handles `POST /suggestions/generate` - Dispatches spatial optimization request to determine ideal new borehole coordinates.
-pub fn handleGenerateSuggestion(allocator: std.mem.Allocator, store: *DataStore, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .community_leader and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Only Authorized Leaders or Administrators can initiate AI siting optimization.");
+/// POST /suggestions/generate
+pub fn handleGenerateSuggestion(service: *const AiService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isNonViewer(req.user.?)) {
+        return try res.forbidden("Read-only viewers cannot generate siting suggestions.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
         target_area: []const u8,
         required_yield: []const u8,
         priority_metric: []const u8,
-    }, allocator, body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
-        return try http_util.sendBadRequest(response, "Invalid JSON suggestion request payload");
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid siting request payload.");
     };
     defer parsed.deinit();
 
-    const new_id = try std.fmt.allocPrint(store.allocator, "SUG-{0d:0>4}", .{1000 + store.siting_suggestions.items.len + 1});
+    const sug = try service.generateSuggestion(res.allocator, parsed.value.target_area);
 
-    const sug: SitingSuggestion = .{
-        .id = new_id,
-        .target_area = try store.allocator.dupe(u8, parsed.value.target_area),
-        .required_yield = try store.allocator.dupe(u8, parsed.value.required_yield),
-        .priority_metric = try store.allocator.dupe(u8, parsed.value.priority_metric),
-        .status = "complete",
-        .recommended_lat = -18.1500,
-        .recommended_lng = 13.7200,
-        .confidence_score = 91,
-        .justification = "High fracture lineament convergence and 800m proximity to local population.",
-        .created_at = "2026-08-19T12:00:00Z",
-    };
-
-    store.mutex.lock();
-    try store.siting_suggestions.append(store.allocator, sug);
-    store.mutex.unlock();
-
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"suggestion_id\":\"{s}\",\"status\":\"complete\",\"recommended_coordinates\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"confidence_score\":{d},\"justification\":\"{s}\"}}",
-        .{ sug.id, sug.recommended_lat, sug.recommended_lng, sug.confidence_score, sug.justification }
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"suggestion_id\":\"{s}\",\"status\":\"{s}\",\"recommended_coordinates\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"confidence_score\":{d},\"justification\":\"{s}\"}}",
+        .{ sug.id, sug.status, sug.recommended_lat, sug.recommended_lng, sug.confidence_score, sug.justification }
     );
-    defer allocator.free(res_json);
+    defer res.allocator.free(json);
 
-    try http_util.sendCreated(response, res_json);
+    try res.created(json);
 }
 
-/// Handles `GET /suggestions/{id}` - Retrieves the results, confidence score, and rationale of an AI siting suggestion.
-pub fn handleGetSuggestionById(allocator: std.mem.Allocator, store: *DataStore, id: []const u8, response: *const http_util.Response) !void {
-    store.mutex.lock();
-    defer store.mutex.unlock();
+/// GET /suggestions/{id}
+pub fn handleGetSuggestionById(service: *const AiService, suggestion_id: []const u8, req: *const Request, res: *const Response) !void {
+    _ = req;
+    const sug = service.getSuggestionById(suggestion_id) orelse return try res.notFound("Siting suggestion not found.");
 
-    for (store.siting_suggestions.items) |s| {
-        if (std.mem.eql(u8, s.id, id)) {
-            const res_json = try std.fmt.allocPrint(allocator,
-                "{{\"id\":\"{s}\",\"target_area\":\"{s}\",\"status\":\"{s}\",\"recommended_lat\":{d:.4},\"recommended_lng\":{d:.4},\"confidence_score\":{d},\"justification\":\"{s}\",\"created_at\":\"{s}\"}}",
-                .{ s.id, s.target_area, s.status, s.recommended_lat, s.recommended_lng, s.confidence_score, s.justification, s.created_at }
-            );
-            defer allocator.free(res_json);
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"id\":\"{s}\",\"target_area\":\"{s}\",\"status\":\"{s}\",\"recommended_lat\":{d:.4},\"recommended_lng\":{d:.4},\"confidence_score\":{d},\"justification\":\"{s}\",\"created_at\":\"{s}\"}}",
+        .{ sug.id, sug.target_area, sug.status, sug.recommended_lat, sug.recommended_lng, sug.confidence_score, sug.justification, sug.created_at }
+    );
+    defer res.allocator.free(json);
 
-            return try http_util.sendOk(response, res_json);
-        }
-    }
-
-    try http_util.sendNotFound(response, "Siting suggestion not found");
+    try res.ok(json);
 }
 
-/// Handles `POST /ai/predict-yield` - Machine learning inference for expected borehole yield (L/h) and strike depth.
-pub fn handlePredictYield(allocator: std.mem.Allocator, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role == .viewer) {
-        return try http_util.sendForbidden(response, "Direct AI ML inference is restricted.");
+/// POST /ai/predict-yield
+pub fn handlePredictYield(service: *const AiService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isNonViewer(req.user.?)) {
+        return try res.forbidden("Read-only viewers cannot execute AI yield inference.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
         latitude: f64,
         longitude: f64,
-        target_aquifer_depth_m: ?f64 = null,
-    }, allocator, body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
-        return try http_util.sendBadRequest(response, "Invalid coordinates payload");
+        target_aquifer_depth_m: f64,
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid prediction parameters.");
     };
     defer parsed.deinit();
 
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"model_version\":\"hydro-yield-v1.4\",\"location\":{{\"lat\":{d:.6},\"lng\":{d:.6}}},\"predicted_yield_lph\":2400,\"expected_water_strike_depth_m\":72.5,\"static_water_level_m\":18.2,\"geological_formation\":\"Fractured Quartzite & Dolomite\",\"confidence_score\":0.88,\"inference_timestamp\":\"2026-08-19T12:00:00Z\"}}",
-        .{ parsed.value.latitude, parsed.value.longitude }
-    );
-    defer allocator.free(res_json);
+    const inf = service.predictYield(parsed.value.latitude, parsed.value.longitude, parsed.value.target_aquifer_depth_m);
 
-    try http_util.sendOk(response, res_json);
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"model_version\":\"hydro-yield-v1.4\",\"location\":{{\"lat\":{d:.6},\"lng\":{d:.6}}},\"predicted_yield_lph\":{d},\"expected_water_strike_depth_m\":{d:.1},\"static_water_level_m\":{d:.1},\"geological_formation\":\"{s}\",\"confidence_score\":{d:.2},\"inference_timestamp\":\"2026-08-19T12:00:00Z\"}}",
+        .{ parsed.value.latitude, parsed.value.longitude, inf.predicted_yield_lph, inf.expected_water_strike_depth_m, inf.static_water_level_m, inf.geological_formation, inf.confidence_score }
+    );
+    defer res.allocator.free(json);
+
+    try res.ok(json);
 }
 
-/// Handles `POST /ai/aquifer-depletion-risk` - Simulates multi-year extraction drawdown sustainability.
-pub fn handleAquiferDepletionRisk(allocator: std.mem.Allocator, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role == .viewer) {
-        return try http_util.sendForbidden(response, "Access to aquifer simulation is restricted.");
+/// POST /ai/aquifer-depletion-risk
+pub fn handleAquiferDepletionRisk(service: *const AiService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isNonViewer(req.user.?)) {
+        return try res.forbidden("Read-only viewers cannot execute depletion simulations.");
     }
 
-    _ = body;
-    const res_json = "{\"simulation_horizon_years\":10,\"projected_daily_extraction_liters\":25000,\"sustainability_status\":\"sustainable\",\"depletion_risk_level\":\"low\",\"estimated_annual_drawdown_m\":0.35,\"recharge_replenishment_rate\":\"high_seasonal\"}";
-    _ = allocator;
-    try http_util.sendOk(response, res_json);
+    const parsed = std.json.parseFromSlice(struct {
+        borehole_id: []const u8,
+        planned_daily_extraction_liters: u64,
+        simulation_horizon_years: u16,
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid depletion payload.");
+    };
+    defer parsed.deinit();
+
+    const sim = service.simulateDepletion(parsed.value.planned_daily_extraction_liters, parsed.value.simulation_horizon_years);
+
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"simulation_horizon_years\":{d},\"projected_daily_extraction_liters\":{d},\"sustainability_status\":\"{s}\",\"depletion_risk_level\":\"{s}\",\"estimated_annual_drawdown_m\":{d:.2},\"recharge_replenishment_rate\":\"{s}\"}}",
+        .{ parsed.value.simulation_horizon_years, parsed.value.planned_daily_extraction_liters, sim.sustainability_status, sim.depletion_risk_level, sim.estimated_annual_drawdown_m, sim.recharge_replenishment_rate }
+    );
+    defer res.allocator.free(json);
+
+    try res.ok(json);
 }
 
-/// Handles `POST /ai/siting-tasks/async` - Dispatches intensive multi-criteria siting calculation to background compute.
-pub fn handleAsyncSitingTask(allocator: std.mem.Allocator, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role == .viewer) {
-        return try http_util.sendForbidden(response, "Initiating asynchronous compute tasks is restricted.");
+/// POST /ai/siting-tasks/async
+pub fn handleAsyncSitingTask(service: *const AiService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isNonViewer(req.user.?)) {
+        return try res.forbidden("Read-only viewers cannot dispatch async siting tasks.");
     }
 
-    _ = body;
-    const task_id = "TASK-AI-7721";
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"task_id\":\"{s}\",\"status\":\"QUEUED\",\"estimated_duration_seconds\":45,\"message\":\"Spatial multi-criteria optimization dispatched to AI compute cluster.\"}}",
-        .{task_id}
+    const parsed = std.json.parseFromSlice(struct {
+        target_area: []const u8,
+        required_yield: []const u8,
+        priority_metric: []const u8,
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid async task payload.");
+    };
+    defer parsed.deinit();
+
+    const task = service.dispatchAsyncTask(parsed.value.target_area);
+
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"task_id\":\"{s}\",\"status\":\"{s}\",\"estimated_duration_seconds\":45,\"message\":\"Spatial multi-criteria optimization dispatched to AI compute cluster.\"}}",
+        .{ task.task_id, task.status }
     );
-    defer allocator.free(res_json);
+    defer res.allocator.free(json);
 
-    try http_util.sendAccepted(response, res_json);
+    try res.accepted(json);
 }
 
-/// Handles `POST /callbacks/ai/siting-complete` - Ingests webhook callback notifications when background AI tasks finish.
-pub fn handleSitingCompleteCallback(allocator: std.mem.Allocator, body: []const u8, response: *const http_util.Response) !void {
-    _ = body;
-    const res_json = "{\"acknowledged\":true,\"status\":\"SAVED\"}";
-    _ = allocator;
-    try http_util.sendOk(response, res_json);
+/// GET /tasks/{id} or /api/v1/tasks/{id}
+pub fn handleGetTaskStatus(service: *const AiService, task_id: []const u8, req: *const Request, res: *const Response) !void {
+    _ = req;
+    const task = service.getTaskStatus(task_id);
+
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"task_id\":\"{s}\",\"status\":\"{s}\",\"target_area\":\"{s}\",\"created_at\":\"{s}\"}}",
+        .{ task.task_id, task.status, task.target_area, task.created_at }
+    );
+    defer res.allocator.free(json);
+
+    try res.ok(json);
 }
 
-/// Handles `POST /ai/training-data/borehole-logs` - Ingests field drilling logs collected during the Kunene campaign.
-pub fn handleIngestDrillingLogs(allocator: std.mem.Allocator, store: *DataStore, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Only Field Data Collection Teams or Administrators can ingest drilling logs.");
+/// POST /callbacks/ai/siting-complete
+pub fn handleSitingCompleteCallback(service: *const AiService, req: *const Request, res: *const Response) !void {
+    _ = service;
+    _ = req;
+    const json = "{\"acknowledged\":true,\"status\":\"SAVED\"}";
+    try res.ok(json);
+}
+
+/// POST /ai/training-data/borehole-logs
+pub fn handleIngestDrillingLogs(service: *const AiService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can ingest drilling logs.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
@@ -150,58 +173,66 @@ pub fn handleIngestDrillingLogs(allocator: std.mem.Allocator, store: *DataStore,
         water_strike_depth_m: f64,
         tested_yield_lph: u32,
         static_water_level_m: f64,
-    }, allocator, body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
-        return try http_util.sendBadRequest(response, "Invalid drilling log payload");
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid drilling log payload.");
     };
     defer parsed.deinit();
 
-    const new_id = try std.fmt.allocPrint(store.allocator, "DLOG-{0d:0>5}", .{store.drilling_logs.items.len + 1});
-
-    const log: BoreholeDrillingLog = .{
-        .id = new_id,
-        .borehole_code = try store.allocator.dupe(u8, parsed.value.borehole_code),
-        .lat = parsed.value.lat,
-        .lng = parsed.value.lng,
-        .total_depth_m = parsed.value.total_depth_m,
-        .water_strike_depth_m = parsed.value.water_strike_depth_m,
-        .tested_yield_lph = parsed.value.tested_yield_lph,
-        .static_water_level_m = parsed.value.static_water_level_m,
-        .ingested_at = "2026-08-19T12:00:00Z",
-    };
-
-    store.mutex.lock();
-    try store.drilling_logs.append(store.allocator, log);
-    store.mutex.unlock();
-
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"message\":\"Field drilling log ingested into AI training database.\",\"log_id\":\"{s}\",\"borehole_code\":\"{s}\"}}",
-        .{ new_id, parsed.value.borehole_code }
+    const result = try service.ingestDrillingLog(
+        res.allocator,
+        parsed.value.borehole_code,
+        parsed.value.lat,
+        parsed.value.lng,
+        parsed.value.total_depth_m,
+        parsed.value.water_strike_depth_m,
+        parsed.value.tested_yield_lph,
+        parsed.value.static_water_level_m,
     );
-    defer allocator.free(res_json);
 
-    try http_util.sendCreated(response, res_json);
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"message\":\"Field drilling log ingested into AI training database.\",\"log_id\":\"{s}\",\"borehole_code\":\"{s}\"}}",
+        .{ result.log_id, result.borehole_code }
+    );
+    defer res.allocator.free(json);
+
+    try res.created(json);
 }
 
-/// Handles `POST /ai/training-data/yield-maps` - Ingests hydrogeological GIS raster layers.
-pub fn handleIngestYieldMaps(allocator: std.mem.Allocator, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Only GIS/AI Engineers or Administrators can ingest yield maps.");
+/// POST /ai/training-data/yield-maps
+pub fn handleIngestYieldMaps(service: *const AiService, req: *const Request, res: *const Response) !void {
+    _ = service;
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can ingest GIS yield maps.");
     }
 
-    _ = body;
-    const res_json = "{\"message\":\"GIS hydrogeological yield map layers ingested.\",\"layer_id\":\"GIS-LAYER-2026-KUNENE\",\"features_processed\":1420,\"status\":\"INDEXED\"}";
-    _ = allocator;
-    try http_util.sendCreated(response, res_json);
+    const json = "{\"message\":\"GIS hydrogeological yield map layers ingested.\",\"layer_id\":\"GIS-LAYER-2026-KUNENE\",\"features_processed\":1420,\"status\":\"INDEXED\"}";
+    try res.created(json);
 }
 
-/// Handles `POST /ai/routes/terrain-feasibility` - Assesses heavy drilling rig slope gradient and sand entrapment risk.
-pub fn handleTerrainFeasibility(allocator: std.mem.Allocator, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role == .viewer) {
-        return try http_util.sendForbidden(response, "Access to drilling rig logistics feasibility is restricted.");
+/// POST /ai/routes/terrain-feasibility
+pub fn handleTerrainFeasibility(service: *const AiService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isNonViewer(req.user.?)) {
+        return try res.forbidden("Read-only viewers cannot execute terrain feasibility calculations.");
     }
 
-    _ = body;
-    const res_json = "{\"target_coordinates\":{\"lat\":-18.2341,\"lng\":13.8821},\"vehicle_profile\":\"20_ton_drilling_rig\",\"is_feasible\":true,\"max_slope_gradient_degrees\":14.2,\"sand_entrapment_risk\":\"low\",\"recommended_route_advisory\":\"Maintain low gear on river approach\"}";
-    _ = allocator;
-    try http_util.sendOk(response, res_json);
+    const parsed = std.json.parseFromSlice(struct {
+        origin_coordinates: []const u8,
+        destination_coordinates: []const u8,
+        vehicle_type: []const u8,
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid terrain feasibility request.");
+    };
+    defer parsed.deinit();
+
+    const assessment = service.evaluateTerrain(parsed.value.vehicle_type);
+
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"target_coordinates\":{{\"lat\":-18.2341,\"lng\":13.8821}},\"vehicle_profile\":\"{s}\",\"is_feasible\":{s},\"max_slope_gradient_degrees\":{d:.1},\"sand_entrapment_risk\":\"{s}\",\"recommended_route_advisory\":\"{s}\"}}",
+        .{ parsed.value.vehicle_type, if (assessment.is_feasible) "true" else "false", assessment.max_slope_gradient_degrees, assessment.sand_entrapment_risk, assessment.recommended_route_advisory }
+    );
+    defer res.allocator.free(json);
+
+    try res.ok(json);
 }

@@ -1,88 +1,103 @@
 const std = @import("std");
-const DataStore = @import("../db/store.zig").DataStore;
-const TelemetryRecord = @import("../models/telemetry.zig").TelemetryRecord;
-const jwt = @import("../auth/jwt.zig");
-const http_util = @import("../utils/http_util.zig");
+const TelemetryService = @import("../services/telemetry_service.zig").TelemetryService;
+const MaintenanceService = @import("../services/maintenance_service.zig").MaintenanceService;
+const Request = @import("../server/request.zig").Request;
+const Response = @import("../server/response.zig").Response;
+const Middleware = @import("../server/middleware.zig").Middleware;
+const Rbac = @import("../auth/rbac.zig").Rbac;
 
-/// Handles `POST /boreholes/{id}/telemetry` - Ingests real-time IoT sensor readings (drawdown, flow rate, solar battery).
-pub fn handleIngestTelemetry(allocator: std.mem.Allocator, store: *DataStore, borehole_id: []const u8, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Only Maintenance Crew or Administrators can submit IoT sensor telemetry.");
+/// POST /boreholes/{id}/telemetry
+pub fn handleIngestTelemetry(service: *const TelemetryService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can submit telemetry records.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
         drawdown_m: f64,
         recovery_time_mins: u32,
-        solar_battery_level: u32,
+        solar_battery_level: u8,
         flow_rate_lpm: f64,
-    }, allocator, body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
-        return try http_util.sendBadRequest(response, "Invalid JSON telemetry payload");
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid telemetry JSON payload.");
     };
     defer parsed.deinit();
 
-    const new_id = try std.fmt.allocPrint(store.allocator, "TEL-{0d:0>5}", .{store.telemetry.items.len + 1});
-
-    const tel: TelemetryRecord = .{
-        .id = new_id,
-        .borehole_id = try store.allocator.dupe(u8, borehole_id),
-        .timestamp = "2026-08-19T12:00:00Z",
-        .drawdown_m = parsed.value.drawdown_m,
-        .recovery_time_mins = parsed.value.recovery_time_mins,
-        .solar_battery_level = parsed.value.solar_battery_level,
-        .flow_rate_lpm = parsed.value.flow_rate_lpm,
+    const result = service.ingestTelemetry(
+        res.allocator,
+        borehole_id,
+        parsed.value.drawdown_m,
+        parsed.value.recovery_time_mins,
+        parsed.value.solar_battery_level,
+        parsed.value.flow_rate_lpm,
+    ) catch |err| {
+        if (err == error.NotFound) return try res.notFound("Borehole not found.");
+        return try res.internalError("Failed to ingest telemetry.");
     };
 
-    store.mutex.lock();
-    try store.telemetry.append(store.allocator, tel);
-    store.mutex.unlock();
-
-    const res_json = try std.fmt.allocPrint(allocator,
+    const json = try std.fmt.allocPrint(res.allocator,
         "{{\"message\":\"IoT sensor telemetry ingested successfully.\",\"telemetry_id\":\"{s}\",\"borehole_id\":\"{s}\"}}",
-        .{ new_id, borehole_id }
+        .{ result.telemetry_id, result.borehole_id }
     );
-    defer allocator.free(res_json);
+    defer res.allocator.free(json);
 
-    try http_util.sendCreated(response, res_json);
+    try res.created(json);
 }
 
-/// Handles `GET /maintenance-alerts` - Retrieves emergency dispatch tickets for broken or malfunctioning assets.
-pub fn handleGetMaintenanceAlerts(allocator: std.mem.Allocator, store: *DataStore, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Access to maintenance repair dispatch alerts is restricted.");
+/// GET /maintenance-alerts
+pub fn handleGetMaintenanceAlerts(service: *const MaintenanceService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can view maintenance alerts.");
     }
 
-    store.mutex.lock();
-    defer store.mutex.unlock();
+    const alerts = try service.listAlerts(res.allocator);
+    defer res.allocator.free(alerts);
 
-    var list = std.ArrayList(u8).empty;
-    defer list.deinit(allocator);
-
-    try list.appendSlice(allocator, "[");
-    for (store.alerts.items, 0..) |a, i| {
-        if (i > 0) try list.appendSlice(allocator, ",");
-        const item_str = try std.fmt.allocPrint(allocator,
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(res.allocator);
+    try buf.appendSlice(res.allocator, "[");
+    for (alerts, 0..) |a, i| {
+        if (i > 0) try buf.appendSlice(res.allocator, ",");
+        const item = try std.fmt.allocPrint(res.allocator,
             "{{\"borehole_id\":\"{s}\",\"borehole_name\":\"{s}\",\"status\":\"{s}\",\"issue\":\"{s}\",\"reported_at\":\"{s}\",\"urgency\":\"{s}\"}}",
             .{ a.borehole_id, a.borehole_name, a.status, a.issue, a.reported_at, a.urgency }
         );
-        defer allocator.free(item_str);
-        try list.appendSlice(allocator, item_str);
+        defer res.allocator.free(item);
+        try buf.appendSlice(res.allocator, item);
     }
-    try list.appendSlice(allocator, "]");
+    try buf.appendSlice(res.allocator, "]");
 
-    try http_util.sendOk(response, list.items);
+    try res.ok(buf.items);
 }
 
-/// Handles `GET /boreholes/{id}/history` - Retrieves multi-year average yield performance history.
-pub fn handleGetYieldHistory(allocator: std.mem.Allocator, borehole_id: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Access to engineering yield history is restricted.");
+/// GET /boreholes/{id}/history
+pub fn handleGetYieldHistory(service: *const MaintenanceService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can view yield histories.");
     }
 
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"borehole_id\":\"{s}\",\"yearly_average_yield\":[{{\"year\":2024,\"average_yield_lph\":1600}},{{\"year\":2025,\"average_yield_lph\":1550}},{{\"year\":2026,\"average_yield_lph\":1500}}]}}",
-        .{borehole_id}
-    );
-    defer allocator.free(res_json);
+    const history = service.getYieldHistory(res.allocator, borehole_id) catch |err| {
+        if (err == error.NotFound) return try res.notFound("Borehole not found.");
+        return try res.internalError("Failed to retrieve yield history.");
+    };
+    defer res.allocator.free(history);
 
-    try http_util.sendOk(response, res_json);
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(res.allocator);
+
+    const prefix = try std.fmt.allocPrint(res.allocator, "{{\"borehole_id\":\"{s}\",\"yearly_average_yield\":[", .{borehole_id});
+    defer res.allocator.free(prefix);
+    try buf.appendSlice(res.allocator, prefix);
+
+    for (history, 0..) |h, i| {
+        if (i > 0) try buf.appendSlice(res.allocator, ",");
+        const item = try std.fmt.allocPrint(res.allocator, "{{\"year\":{d},\"average_yield_lph\":{d}}}", .{ h.year, h.average_yield_lph });
+        defer res.allocator.free(item);
+        try buf.appendSlice(res.allocator, item);
+    }
+    try buf.appendSlice(res.allocator, "]}");
+
+    try res.ok(buf.items);
 }

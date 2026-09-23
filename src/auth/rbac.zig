@@ -1,47 +1,55 @@
 const std = @import("std");
-const UserRole = @import("../models/user.zig").UserRole;
 const TokenPayload = @import("jwt.zig").TokenPayload;
+const UserRole = @import("../models/user.zig").UserRole;
+const Permission = @import("permissions.zig").Permission;
 
-/// Extracts the raw JWT token from the HTTP Authorization header.
-///
-/// Supported format:
-///   `Authorization: Bearer <token_string>`
-///
-/// Parameters:
-///   - auth_header: The optional raw Authorization header value.
-///
-/// Returns:
-///   The sliced token string if "Bearer " is matched, or `null` if absent or malformed.
-pub fn extractBearerToken(auth_header: ?[]const u8) ?[]const u8 {
-    const h = auth_header orelse return null;
-    const trimmed = std.mem.trim(u8, h, " \t\r\n");
-    if (std.ascii.startsWithIgnoreCase(trimmed, "bearer ")) {
-        return std.mem.trim(u8, trimmed[7..], " \t");
+/// Role-Based Access Control evaluator methods.
+pub const Rbac = struct {
+    /// Extracts Bearer token string from raw `Authorization` header value.
+    pub fn extractBearerToken(auth_header: ?[]const u8) ?[]const u8 {
+        const header = auth_header orelse return null;
+        if (header.len > 7 and std.ascii.startsWithIgnoreCase(header, "bearer ")) {
+            return std.mem.trim(u8, header[7..], " \t");
+        }
+        return null;
     }
-    return null;
-}
 
-/// Evaluates whether the authenticated user has full Administrator privileges.
-pub fn isAdmin(user: TokenPayload) bool {
-    return user.role == .admin;
-}
+    /// Checks if user has a specific fine-grained permission.
+    pub fn hasPermission(user: ?TokenPayload, permission: Permission) bool {
+        const u = user orelse return false;
+        return permission.isGranted(u.role);
+    }
 
-/// Evaluates whether the user is authorized for Maintenance operations (Admin or Maintenance Crew).
-pub fn isMaintenanceOrAdmin(user: TokenPayload) bool {
-    return user.role == .admin or user.role == .maintenance_crew;
-}
+    /// Admin check helper.
+    pub fn isAdmin(user: TokenPayload) bool {
+        return user.role == .admin;
+    }
 
-/// Evaluates whether the user is authorized for Water Health & Quality operations (Admin or Health Inspector).
-pub fn isHealthOrAdmin(user: TokenPayload) bool {
-    return user.role == .admin or user.role == .health_inspector;
-}
+    /// Health Inspector or Admin check helper.
+    pub fn isHealthOrAdmin(user: TokenPayload) bool {
+        return user.role == .admin or user.role == .health_inspector;
+    }
 
-/// Evaluates whether the user is authorized for Community Interventions (Admin or Community Leader).
-pub fn isLeaderOrAdmin(user: TokenPayload) bool {
-    return user.role == .admin or user.role == .community_leader;
-}
+    /// Maintenance Crew or Admin check helper.
+    pub fn isMaintenanceOrAdmin(user: TokenPayload) bool {
+        return user.role == .admin or user.role == .maintenance_crew;
+    }
 
-/// Evaluates whether the user has non-viewer operational access.
-pub fn isNonViewer(user: TokenPayload) bool {
-    return user.role != .viewer;
-}
+    /// Community Leader or Admin check helper.
+    pub fn isLeaderOrAdmin(user: TokenPayload) bool {
+        return user.role == .admin or user.role == .community_leader;
+    }
+
+    /// Non-viewer check helper.
+    pub fn isNonViewer(user: TokenPayload) bool {
+        return user.role != .viewer;
+    }
+};
+
+// Re-exports for root/package access
+pub const extractBearerToken = Rbac.extractBearerToken;
+pub const isAdmin = Rbac.isAdmin;
+pub const isHealthOrAdmin = Rbac.isHealthOrAdmin;
+pub const isMaintenanceOrAdmin = Rbac.isMaintenanceOrAdmin;
+pub const isLeaderOrAdmin = Rbac.isLeaderOrAdmin;
+pub const isNonViewer = Rbac.isNonViewer;

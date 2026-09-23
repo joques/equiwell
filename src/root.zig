@@ -1,9 +1,14 @@
 const std = @import("std");
 
-/// Global configuration exports.
-pub const config = @import("config.zig");
+pub const app = @import("app/application.zig");
+pub const config = @import("config/config.zig");
+pub const errors = @import("errors/api_error.zig");
+pub const observability = struct {
+    pub const logger = @import("observability/logger.zig");
+    pub const metrics = @import("observability/metrics.zig");
+    pub const tracing = @import("observability/tracing.zig");
+};
 
-/// Domain data models.
 pub const models = struct {
     pub const user = @import("models/user.zig");
     pub const borehole = @import("models/borehole.zig");
@@ -11,24 +16,76 @@ pub const models = struct {
     pub const telemetry = @import("models/telemetry.zig");
     pub const allocation = @import("models/allocation.zig");
     pub const logistics = @import("models/logistics.zig");
-    pub const ai_siting = @import("models/ai_siting.zig");
+    pub const community = @import("models/community.zig");
+    pub const ai = @import("models/ai.zig");
 };
 
-/// Authentication & authorization security services.
+pub const domain = struct {
+    pub const hydrogeology = struct {
+        pub const factors = @import("domain/hydrogeology/factors.zig");
+        pub const mcda = @import("domain/hydrogeology/mcda.zig");
+        pub const yield_prediction = @import("domain/hydrogeology/yield_prediction.zig");
+        pub const depletion = @import("domain/hydrogeology/depletion.zig");
+    };
+    pub const equity = struct {
+        pub const gini = @import("domain/equity/gini.zig");
+        pub const water_stress = @import("domain/equity/water_stress.zig");
+    };
+    pub const terrain = struct {
+        pub const feasibility = @import("domain/terrain/feasibility.zig");
+    };
+};
+
 pub const auth = struct {
     pub const password = @import("auth/password.zig");
     pub const jwt = @import("auth/jwt.zig");
+    pub const permissions = @import("auth/permissions.zig");
     pub const rbac = @import("auth/rbac.zig");
 };
 
-/// Thread-safe in-memory database persistence.
-pub const db = struct {
-    pub const store = @import("db/store.zig");
+pub const database = @import("database/database.zig");
+
+pub const repositories = struct {
+    pub const user_repo = @import("repositories/user_repository.zig");
+    pub const borehole_repo = @import("repositories/borehole_repository.zig");
+    pub const lab_repo = @import("repositories/lab_repository.zig");
+    pub const telemetry_repo = @import("repositories/telemetry_repository.zig");
+    pub const allocation_repo = @import("repositories/allocation_repository.zig");
+    pub const community_repo = @import("repositories/community_repository.zig");
 };
 
-/// HTTP utilities and response helpers.
+pub const services = struct {
+    pub const user_service = @import("services/user_service.zig");
+    pub const borehole_service = @import("services/borehole_service.zig");
+    pub const health_service = @import("services/health_service.zig");
+    pub const telemetry_service = @import("services/telemetry_service.zig");
+    pub const maintenance_service = @import("services/maintenance_service.zig");
+    pub const allocation_service = @import("services/allocation_service.zig");
+    pub const community_service = @import("services/community_service.zig");
+    pub const logistics_service = @import("services/logistics_service.zig");
+    pub const ai_service = @import("services/ai_service.zig");
+};
+
+pub const integrations = struct {
+    pub const google_maps = @import("integrations/google_maps.zig");
+    pub const ai_worker = @import("integrations/ai_worker.zig");
+    pub const iot = @import("integrations/iot.zig");
+};
+
+pub const server = struct {
+    pub const server = @import("server/server.zig");
+    pub const router = @import("server/router.zig");
+    pub const request = @import("server/request.zig");
+    pub const response = @import("server/response.zig");
+    pub const middleware = @import("server/middleware.zig");
+    pub const cors = @import("server/cors.zig");
+};
+
 pub const utils = struct {
-    pub const http = @import("utils/http_util.zig");
+    pub const validation = @import("utils/validation.zig");
+    pub const ids = @import("utils/ids.zig");
+    pub const datetime = @import("utils/datetime.zig");
+    pub const json = @import("utils/json.zig");
 };
 
 // =========================================================================
@@ -38,7 +95,6 @@ pub const utils = struct {
 test "JWT generation and verification" {
     const allocator = std.testing.allocator;
 
-    // 1. Generate JWT Token
     const token = try auth.jwt.generateToken(
         allocator,
         "USR-001",
@@ -50,7 +106,6 @@ test "JWT generation and verification" {
 
     try std.testing.expect(token.len > 0);
 
-    // 2. Verify and Parse Token Payload
     var payload = auth.jwt.verifyToken(allocator, token);
     try std.testing.expect(payload != null);
     if (payload) |*p| {
@@ -62,26 +117,25 @@ test "JWT generation and verification" {
     }
 }
 
-test "DataStore initialization and lookup" {
+test "Password PBKDF2 hashing and verification" {
     const allocator = std.testing.allocator;
+    const pwd = "SecurePassword123!";
 
-    // 1. Initialize In-Memory Store
-    const store = try db.store.DataStore.init(allocator);
-    defer store.deinit();
+    const hashed = try auth.password.Password.hash(allocator, pwd);
+    defer allocator.free(hashed);
 
-    // 2. Lookup Seeded Administrator
-    const user = store.findUserByEmail("rndevahoma@equiwell.nam");
-    try std.testing.expect(user != null);
-    if (user) |u| {
-        try std.testing.expectEqualStrings("USR-001", u.id);
-        try std.testing.expectEqual(models.user.UserRole.admin, u.role);
-    }
+    try std.testing.expect(auth.password.Password.verify(pwd, hashed));
+    try std.testing.expect(!auth.password.Password.verify("WrongPassword", hashed));
+}
 
-    // 3. Lookup Seeded Borehole with Commissioning Date
-    const borehole = store.findBoreholeById("BH-1002");
-    try std.testing.expect(borehole != null);
-    if (borehole) |bh| {
-        try std.testing.expectEqualStrings("Okangwati Community Well 1", bh.name);
-        try std.testing.expectEqualStrings("2024-03-15", bh.implemented_date);
-    }
+test "Gini Coefficient Calculation" {
+    const values = [_]f64{ 1.0, 2.0, 3.0, 4.0, 5.0 };
+    const gini = domain.equity.gini.Gini.computeGini(&values);
+    try std.testing.expect(gini > 0.0 and gini < 1.0);
+}
+
+test "MCDA Groundwater Suitability Calculation" {
+    const suitability = domain.hydrogeology.mcda.Mcda.calculateSuitability(0.9, 0.8, 0.7, 0.85);
+    const confidence = domain.hydrogeology.mcda.Mcda.computeConfidenceScore(suitability);
+    try std.testing.expect(confidence > 70);
 }

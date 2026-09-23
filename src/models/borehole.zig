@@ -1,13 +1,12 @@
 const std = @import("std");
 
-/// Primary energy and mechanical power source for a borehole pump.
+/// Pump mechanism installed at a borehole asset.
 pub const PumpType = enum {
     solar,
     diesel,
     hand_pump,
     hybrid,
 
-    /// Converts the PumpType enum to its lowercase string representation.
     pub fn toString(self: PumpType) []const u8 {
         return switch (self) {
             .solar => "solar",
@@ -17,7 +16,6 @@ pub const PumpType = enum {
         };
     }
 
-    /// Parses a string into a PumpType enum variant.
     pub fn fromString(str: []const u8) ?PumpType {
         if (std.mem.eql(u8, str, "solar")) return .solar;
         if (std.mem.eql(u8, str, "diesel")) return .diesel;
@@ -27,13 +25,12 @@ pub const PumpType = enum {
     }
 };
 
-/// Operational health state of a borehole water asset.
+/// Operational health state of a borehole asset.
 pub const BoreholeStatus = enum {
     working,
     broken,
     maintenance_required,
 
-    /// Converts BoreholeStatus to string.
     pub fn toString(self: BoreholeStatus) []const u8 {
         return switch (self) {
             .working => "working",
@@ -42,7 +39,6 @@ pub const BoreholeStatus = enum {
         };
     }
 
-    /// Parses a string into BoreholeStatus.
     pub fn fromString(str: []const u8) ?BoreholeStatus {
         if (std.mem.eql(u8, str, "working")) return .working;
         if (std.mem.eql(u8, str, "broken")) return .broken;
@@ -51,32 +47,18 @@ pub const BoreholeStatus = enum {
     }
 };
 
-/// Core physical asset model representing a groundwater borehole in the Kunene Region.
+/// Physical groundwater asset record.
 pub const Borehole = struct {
-    /// Unique borehole code (e.g. "BH-1002").
     id: []const u8,
-    /// Descriptive name or village landmark (e.g. "Okangwati Community Well 1").
     name: []const u8,
-    /// GPS latitude coordinate in decimal degrees.
     lat: f64,
-    /// GPS longitude coordinate in decimal degrees.
     lng: f64,
-    /// Total drilled depth in meters.
     depth_m: f64,
-    /// Mechanical/energy pump mechanism.
     pump_type: PumpType,
-    /// Tested water delivery yield in Liters per Hour (L/h).
     yield_lph: u32,
-    /// Current operational state.
     status: BoreholeStatus,
-    /// Water potability classification (e.g. "potable", "brackish", "untreated").
     water_quality: []const u8,
-    /// Date when the borehole was officially commissioned/installed (e.g. "2024-03-15").
     implemented_date: []const u8,
-    /// Date when preventative or corrective maintenance was last performed.
     last_maintained: []const u8,
-    /// Whether the borehole is visible on the public dashboard map.
-    is_visible: bool,
-    /// Organization, installer, or entity responsible for drilling.
-    installed_by: []const u8,
+    is_visible: bool = true,
 };

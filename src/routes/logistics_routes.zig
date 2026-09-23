@@ -1,71 +1,85 @@
 const std = @import("std");
-const DataStore = @import("../db/store.zig").DataStore;
-const jwt = @import("../auth/jwt.zig");
-const http_util = @import("../utils/http_util.zig");
+const LogisticsService = @import("../services/logistics_service.zig").LogisticsService;
+const Request = @import("../server/request.zig").Request;
+const Response = @import("../server/response.zig").Response;
+const Middleware = @import("../server/middleware.zig").Middleware;
+const Rbac = @import("../auth/rbac.zig").Rbac;
 
-/// Handles `GET /boreholes/{id}/logistics` - Retrieves terrain classifications, 4x4 requirements, and seasonal hazard advisories.
-pub fn handleGetBoreholeLogistics(allocator: std.mem.Allocator, store: *DataStore, borehole_id: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Access to field logistics terrain assessments is restricted.");
+/// GET /boreholes/{id}/logistics
+pub fn handleGetBoreholeLogistics(service: *const LogisticsService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can access logistics profiles.");
     }
 
-    const bh = store.findBoreholeById(borehole_id) orelse {
-        return try http_util.sendNotFound(response, "Borehole not found");
+    const log = service.getBoreholeLogistics(borehole_id) catch |err| {
+        if (err == error.NotFound) return try res.notFound("Borehole not found.");
+        return try res.internalError("Failed to retrieve logistics profile.");
     };
 
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"borehole_id\":\"{s}\",\"borehole_name\":\"{s}\",\"coordinates\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"terrain_difficulty\":\"rough_gravel\",\"vehicle_requirement\":\"4x4_mandatory\",\"seasonal_warning\":\"Passable in dry season; caution during flash floods\",\"nearest_fuel_depot_km\":42.5}}",
-        .{ bh.id, bh.name, bh.lat, bh.lng }
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"borehole_id\":\"{s}\",\"borehole_name\":\"{s}\",\"coordinates\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"terrain_difficulty\":\"{s}\",\"vehicle_requirement\":\"{s}\",\"seasonal_warning\":\"{s}\",\"nearest_fuel_depot_km\":{d:.1}}}",
+        .{ log.borehole_id, log.borehole_name, log.lat, log.lng, log.terrain_difficulty, log.vehicle_requirement, log.seasonal_warning, log.nearest_fuel_depot_km }
     );
-    defer allocator.free(res_json);
+    defer res.allocator.free(json);
 
-    try http_util.sendOk(response, res_json);
+    try res.ok(json);
 }
 
-/// Handles `POST /routes/calculate` - Plots safe off-road tracks avoiding hazardous riverbeds.
-pub fn handleCalculateRoute(allocator: std.mem.Allocator, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Access to route calculation is restricted.");
+/// POST /routes/calculate
+pub fn handleCalculateRoute(service: *const LogisticsService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can calculate transit routes.");
     }
 
-    _ = body;
-    const res_json = "{\"origin\":{\"lat\":-18.0583,\"lng\":13.8402},\"destination\":{\"lat\":-18.2341,\"lng\":13.8821},\"distance_km\":34.2,\"estimated_time_mins\":58,\"riverbed_crossings\":2,\"road_type\":\"off_road_sand_track\",\"safe_during_rain\":false}";
-    _ = allocator;
-    try http_util.sendOk(response, res_json);
+    const parsed = std.json.parseFromSlice(struct {
+        start_coordinates: []const u8,
+        destination_borehole_id: []const u8,
+        vehicle_type: []const u8,
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid route calculation JSON payload.");
+    };
+    defer parsed.deinit();
+
+    const r = service.calculateRoute(res.allocator, parsed.value.destination_borehole_id) catch |err| {
+        if (err == error.NotFound) return try res.notFound("Destination borehole not found.");
+        return try res.internalError("Failed to calculate route.");
+    };
+
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"origin\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"destination\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"distance_km\":{d:.1},\"estimated_time_mins\":{d},\"riverbed_crossings\":{d},\"road_type\":\"{s}\",\"safe_during_rain\":{s}}}",
+        .{ r.origin_lat, r.origin_lng, r.dest_lat, r.dest_lng, r.distance_km, r.estimated_time_mins, r.riverbed_crossings, r.road_type, if (r.safe_during_rain) "true" else "false" }
+    );
+    defer res.allocator.free(json);
+
+    try res.ok(json);
 }
 
-/// Handles `POST /routes/google-maps-directions` - Integrates with Google Maps Directions API providing navigation deep links (`google_maps_url`), turn-by-turn steps, and polylines.
-pub fn handleGoogleMapsDirections(allocator: std.mem.Allocator, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .maintenance_crew) {
-        return try http_util.sendForbidden(response, "Access to Google Maps field dispatch navigation is restricted.");
+/// POST /routes/google-maps-directions
+pub fn handleGoogleMapsDirections(service: *const LogisticsService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Maintenance Crew or Admins can request Google Maps directions.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
         origin_lat: f64,
         origin_lng: f64,
-        destination_borehole_id: ?[]const u8 = null,
-        destination_lat: ?f64 = null,
-        destination_lng: ?f64 = null,
-        travel_mode: ?[]const u8 = null,
-    }, allocator, body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
-        return try http_util.sendBadRequest(response, "Invalid JSON Google Maps routing request payload");
+        destination_lat: f64,
+        destination_lng: f64,
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid coordinate payload.");
     };
     defer parsed.deinit();
 
-    const d_lat = parsed.value.destination_lat orelse -18.2341;
-    const d_lng = parsed.value.destination_lng orelse 13.8821;
+    const dir = try service.getDirections(res.allocator, parsed.value.origin_lat, parsed.value.origin_lng, parsed.value.destination_lat, parsed.value.destination_lng);
 
-    const gmaps_url = try std.fmt.allocPrint(allocator, 
-        "https://www.google.com/maps/dir/?api=1&origin={d:.6},{d:.6}&destination={d:.6},{d:.6}&travelmode=driving",
-        .{ parsed.value.origin_lat, parsed.value.origin_lng, d_lat, d_lng }
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"route_status\":\"{s}\",\"origin\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"destination\":{{\"lat\":{d:.4},\"lng\":{d:.4}}},\"distance_km\":{d:.1},\"duration_formatted\":\"{s}\",\"google_maps_url\":\"{s}\",\"steps\":[{{\"instruction\":\"Head northwest on C43 toward Opuwo\",\"distance\":\"12.4 km\"}},{{\"instruction\":\"Turn left onto D3704 gravel track\",\"distance\":\"22.8 km\"}},{{\"instruction\":\"Turn right toward target borehole site\",\"distance\":\"6.4 km\"}}],\"encoded_polyline\":\"{s}\"}}",
+        .{ dir.route_status, dir.origin_lat, dir.origin_lng, dir.destination_lat, dir.destination_lng, dir.distance_km, dir.duration_formatted, dir.google_maps_url, dir.encoded_polyline }
     );
-    defer allocator.free(gmaps_url);
+    defer res.allocator.free(json);
 
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"route_status\":\"OK\",\"origin\":{{\"lat\":{d:.6},\"lng\":{d:.6}}},\"destination\":{{\"lat\":{d:.6},\"lng\":{d:.6}}},\"distance_km\":41.6,\"duration_formatted\":\"1 hr 12 mins\",\"google_maps_url\":\"{s}\",\"steps\":[{{\"instruction\":\"Head northwest on C43 toward Opuwo\",\"distance\":\"12.4 km\"}},{{\"instruction\":\"Turn left onto D3704 gravel track\",\"distance\":\"22.8 km\"}},{{\"instruction\":\"Turn right toward target borehole site\",\"distance\":\"6.4 km\"}}],\"encoded_polyline\":\"_p~iF~ps|U_ulLnqP_seK_seK\"}}",
-        .{ parsed.value.origin_lat, parsed.value.origin_lng, d_lat, d_lng, gmaps_url }
-    );
-    defer allocator.free(res_json);
-
-    try http_util.sendOk(response, res_json);
+    try res.ok(json);
 }

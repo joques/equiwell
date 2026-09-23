@@ -1,49 +1,57 @@
 const std = @import("std");
-const DataStore = @import("../db/store.zig").DataStore;
-const CommunityRequest = @import("../models/allocation.zig").CommunityRequest;
-const jwt = @import("../auth/jwt.zig");
-const http_util = @import("../utils/http_util.zig");
+const AllocationService = @import("../services/allocation_service.zig").AllocationService;
+const CommunityService = @import("../services/community_service.zig").CommunityService;
+const Request = @import("../server/request.zig").Request;
+const Response = @import("../server/response.zig").Response;
+const Middleware = @import("../server/middleware.zig").Middleware;
+const Rbac = @import("../auth/rbac.zig").Rbac;
 
-/// Handles `GET /allocation-metrics` - Provides regional water stress indicators and Gini fairness coefficient.
-pub fn handleGetAllocationMetrics(allocator: std.mem.Allocator, response: *const http_util.Response) !void {
-    const res_json = "{\"region\":\"Kunene\",\"total_population\":86856,\"working_boreholes\":142,\"broken_boreholes\":31,\"average_distance_to_water_km\":4.8,\"water_stress_index\":\"high\",\"fairness_gini_coefficient\":0.38}";
-    _ = allocator;
-    try http_util.sendOk(response, res_json);
+/// GET /allocation-metrics
+pub fn handleGetAllocationMetrics(service: *const AllocationService, req: *const Request, res: *const Response) !void {
+    _ = req;
+    const m = service.getAllocationMetrics();
+
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"region\":\"{s}\",\"total_population\":{d},\"working_boreholes\":{d},\"broken_boreholes\":{d},\"average_distance_to_water_km\":{d:.1},\"water_stress_index\":\"{s}\",\"fairness_gini_coefficient\":{d:.2}}}",
+        .{ m.region, m.total_population, m.working_boreholes, m.broken_boreholes, m.average_distance_to_water_km, m.water_stress_index, m.fairness_gini_coefficient }
+    );
+    defer res.allocator.free(json);
+
+    try res.ok(json);
 }
 
-/// Handles `GET /community-requests` - Lists active community emergency water assistance requests.
-pub fn handleGetCommunityRequests(allocator: std.mem.Allocator, store: *DataStore, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .community_leader) {
-        return try http_util.sendForbidden(response, "Access to community emergency water requests is restricted to Community Leaders and Administrators.");
+/// GET /community-requests
+pub fn handleGetCommunityRequests(service: *const CommunityService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isLeaderOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Community Leaders or Admins can view community requests.");
     }
 
-    store.mutex.lock();
-    defer store.mutex.unlock();
+    const requests = try service.listCommunityRequests(res.allocator);
+    defer res.allocator.free(requests);
 
-    var list = std.ArrayList(u8).empty;
-    defer list.deinit(allocator);
-
-    try list.appendSlice(allocator, "[");
-    for (store.community_requests.items, 0..) |req, i| {
-        if (i > 0) try list.appendSlice(allocator, ",");
-        const item_str = try std.fmt.allocPrint(allocator,
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(res.allocator);
+    try buf.appendSlice(res.allocator, "[");
+    for (requests, 0..) |r, i| {
+        if (i > 0) try buf.appendSlice(res.allocator, ",");
+        const item = try std.fmt.allocPrint(res.allocator,
             "{{\"id\":\"{s}\",\"community_name\":\"{s}\",\"contact_person\":\"{s}\",\"contact_phone\":\"{s}\",\"issue\":\"{s}\",\"urgency\":\"{s}\",\"status\":\"{s}\",\"submitted_at\":\"{s}\"}}",
-            .{
-                req.id, req.community_name, req.contact_person, req.contact_phone, req.issue, req.urgency, req.status, req.submitted_at
-            }
+            .{ r.id, r.community_name, r.contact_person, r.contact_phone, r.issue, r.urgency, r.status, r.submitted_at }
         );
-        defer allocator.free(item_str);
-        try list.appendSlice(allocator, item_str);
+        defer res.allocator.free(item);
+        try buf.appendSlice(res.allocator, item);
     }
-    try list.appendSlice(allocator, "]");
+    try buf.appendSlice(res.allocator, "]");
 
-    try http_util.sendOk(response, list.items);
+    try res.ok(buf.items);
 }
 
-/// Handles `POST /community-requests` - Submits an emergency water assistance request on behalf of a rural community.
-pub fn handleCreateCommunityRequest(allocator: std.mem.Allocator, store: *DataStore, body: []const u8, current_user: jwt.TokenPayload, response: *const http_util.Response) !void {
-    if (current_user.role != .admin and current_user.role != .community_leader) {
-        return try http_util.sendForbidden(response, "Only Community Leaders or Administrators can submit community water assistance requests.");
+/// POST /community-requests
+pub fn handleCreateCommunityRequest(service: *const CommunityService, req: *const Request, res: *const Response) !void {
+    if (!try Middleware.requireAuth(req, res)) return;
+    if (!Rbac.isLeaderOrAdmin(req.user.?)) {
+        return try res.forbidden("Only Community Leaders or Admins can submit community requests.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
@@ -52,33 +60,25 @@ pub fn handleCreateCommunityRequest(allocator: std.mem.Allocator, store: *DataSt
         contact_phone: []const u8,
         issue: []const u8,
         urgency: []const u8,
-    }, allocator, body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
-        return try http_util.sendBadRequest(response, "Invalid JSON community request payload");
+    }, req.allocator, req.body, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch {
+        return try res.badRequest("Invalid community request JSON payload.");
     };
     defer parsed.deinit();
 
-    const new_id = try std.fmt.allocPrint(store.allocator, "COM-REQ-{0d:0>3}", .{store.community_requests.items.len + 101});
-
-    const req: CommunityRequest = .{
-        .id = new_id,
-        .community_name = try store.allocator.dupe(u8, parsed.value.community_name),
-        .contact_person = try store.allocator.dupe(u8, parsed.value.contact_person),
-        .contact_phone = try store.allocator.dupe(u8, parsed.value.contact_phone),
-        .issue = try store.allocator.dupe(u8, parsed.value.issue),
-        .urgency = try store.allocator.dupe(u8, parsed.value.urgency),
-        .status = "under_review",
-        .submitted_at = "2026-08-19T12:00:00Z",
-    };
-
-    store.mutex.lock();
-    try store.community_requests.append(store.allocator, req);
-    store.mutex.unlock();
-
-    const res_json = try std.fmt.allocPrint(allocator,
-        "{{\"message\":\"Community assistance request logged successfully.\",\"request_id\":\"{s}\",\"status\":\"under_review\"}}",
-        .{new_id}
+    const result = try service.submitRequest(
+        res.allocator,
+        parsed.value.community_name,
+        parsed.value.contact_person,
+        parsed.value.contact_phone,
+        parsed.value.issue,
+        parsed.value.urgency,
     );
-    defer allocator.free(res_json);
 
-    try http_util.sendCreated(response, res_json);
+    const json = try std.fmt.allocPrint(res.allocator,
+        "{{\"message\":\"Community assistance request logged successfully.\",\"request_id\":\"{s}\",\"status\":\"{s}\"}}",
+        .{ result.request_id, result.status }
+    );
+    defer res.allocator.free(json);
+
+    try res.created(json);
 }
