@@ -5,7 +5,7 @@
 [![Security](https://img.shields.io/badge/Security-5--Tier%20RBAC%20%2B%20JWT-green.svg)]()
 [![Tests](https://img.shields.io/badge/Tests-39%2F39%20Passing%20(100%25)-brightgreen.svg)]()
 
-**EquiWell** is an intelligent, high-performance spatial decision-support and groundwater infrastructure management platform engineered for arid and semi-arid rural communities—with initial deployment focused on the **Kunene Region of Namibia** (Opuwo, Okangwati, Sesfontein, Epupa).
+**EquiWell** is an intelligent, high-performance spatial decision-support and groundwater infrastructure management platform engineered for arid and semi-arid rural communities—with initial deployment focused on the **Kunene Region of Namibia**.
 
 ---
 
