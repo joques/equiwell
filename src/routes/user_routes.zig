@@ -4,6 +4,7 @@ const Request = @import("../server/request.zig").Request;
 const Response = @import("../server/response.zig").Response;
 const UserRole = @import("../models/user.zig").UserRole;
 const Middleware = @import("../server/middleware.zig").Middleware;
+const Validation = @import("../utils/validation.zig").Validation;
 
 /// POST /users/register
 pub fn handleRegister(service: *const UserService, req: *const Request, res: *const Response) !void {
@@ -15,6 +16,16 @@ pub fn handleRegister(service: *const UserService, req: *const Request, res: *co
         return try res.badRequest("Invalid registration JSON payload.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidString(parsed.value.name, 1, 100)) {
+        return try res.badRequest("Invalid name. Name must be between 1 and 100 characters.");
+    }
+    if (!Validation.isValidEmail(parsed.value.email)) {
+        return try res.badRequest("Invalid email address format.");
+    }
+    if (!Validation.isValidPassword(parsed.value.password)) {
+        return try res.badRequest("Invalid password. Password must be between 8 and 128 characters.");
+    }
 
     const result = service.registerUser(res.allocator, parsed.value.name, parsed.value.email, parsed.value.password) catch |err| {
         return switch (err) {
@@ -42,6 +53,10 @@ pub fn handleLogin(service: *const UserService, req: *const Request, res: *const
         return try res.badRequest("Invalid login JSON payload.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidEmail(parsed.value.email) or !Validation.isValidString(parsed.value.password, 1, 128)) {
+        return try res.badRequest("Invalid email or password format.");
+    }
 
     const result = service.loginUser(res.allocator, parsed.value.email, parsed.value.password) catch |err| {
         return switch (err) {
@@ -86,6 +101,9 @@ pub fn handleListUsers(service: *const UserService, req: *const Request, res: *c
 /// GET /users/{id}
 pub fn handleGetUserById(service: *const UserService, user_id: []const u8, req: *const Request, res: *const Response) !void {
     _ = req;
+    if (!Validation.isValidString(user_id, 1, 50)) {
+        return try res.badRequest("Invalid user ID parameter.");
+    }
     const user = service.getUserById(user_id) orelse return try res.notFound("User not found.");
 
     const json = try std.fmt.allocPrint(res.allocator,
@@ -100,6 +118,9 @@ pub fn handleGetUserById(service: *const UserService, user_id: []const u8, req: 
 /// PUT /users/{id}
 pub fn handleUpdateUser(service: *const UserService, user_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAuth(req, res)) return;
+    if (!Validation.isValidString(user_id, 1, 50)) {
+        return try res.badRequest("Invalid user ID parameter.");
+    }
 
     const parsed = std.json.parseFromSlice(struct {
         name: ?[]const u8 = null,
@@ -108,6 +129,21 @@ pub fn handleUpdateUser(service: *const UserService, user_id: []const u8, req: *
         return try res.badRequest("Invalid update payload.");
     };
     defer parsed.deinit();
+
+    if (parsed.value.name == null and parsed.value.email == null) {
+        return try res.badRequest("No update fields provided.");
+    }
+
+    if (parsed.value.name) |nm| {
+        if (!Validation.isValidString(nm, 1, 100)) {
+            return try res.badRequest("Invalid name. Name must be between 1 and 100 characters.");
+        }
+    }
+    if (parsed.value.email) |em| {
+        if (!Validation.isValidEmail(em)) {
+            return try res.badRequest("Invalid email address format.");
+        }
+    }
 
     if (!service.updateUserProfile(user_id, parsed.value.name, parsed.value.email)) {
         return try res.notFound("User not found.");
@@ -125,6 +161,9 @@ pub fn handleUpdateUser(service: *const UserService, user_id: []const u8, req: *
 /// PATCH /users/{id}/role
 pub fn handleUpdateUserRole(service: *const UserService, user_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAdmin(req, res)) return;
+    if (!Validation.isValidString(user_id, 1, 50)) {
+        return try res.badRequest("Invalid user ID parameter.");
+    }
 
     const parsed = std.json.parseFromSlice(struct {
         role: []const u8,
@@ -153,6 +192,9 @@ pub fn handleUpdateUserRole(service: *const UserService, user_id: []const u8, re
 /// DELETE /users/{id}
 pub fn handleDeleteUser(service: *const UserService, user_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAdmin(req, res)) return;
+    if (!Validation.isValidString(user_id, 1, 50)) {
+        return try res.badRequest("Invalid user ID parameter.");
+    }
 
     if (!service.deleteUser(user_id)) {
         return try res.notFound("User not found.");

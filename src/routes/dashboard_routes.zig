@@ -9,11 +9,12 @@ pub fn handleSummary(service: *const BoreholeService, req: *const Request, res: 
     const summary = service.getDashboardSummary();
 
     const json = try std.fmt.allocPrint(res.allocator,
-        "{{\"total_boreholes\":{d},\"working_boreholes\":{d},\"broken_boreholes\":{d},\"communities_at_risk\":{d},\"recent_installations_this_year\":{d},\"latest_borehole_implemented_date\":\"{s}\",\"last_synced_at\":\"{s}\"}}",
+        "{{\"total_boreholes\":{d},\"working_boreholes\":{d},\"broken_boreholes\":{d},\"maintenance_required_boreholes\":{d},\"communities_at_risk\":{d},\"recent_installations_this_year\":{d},\"latest_borehole_implemented_date\":\"{s}\",\"last_synced_at\":\"{s}\"}}",
         .{
             summary.total_boreholes,
             summary.working_boreholes,
             summary.broken_boreholes,
+            summary.maintenance_required_boreholes,
             summary.communities_at_risk,
             summary.recent_installations_this_year,
             summary.latest_borehole_implemented_date,

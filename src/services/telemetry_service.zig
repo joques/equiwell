@@ -29,7 +29,7 @@ pub const TelemetryService = struct {
             return error.NotFound;
         }
 
-        const id = try Ids.formatTelemetryId(allocator, 1);
+        const id = try Ids.formatTelemetryId(allocator, self.telemetry_repo.db.getNextTelemetryIndex());
         const rec: TelemetryRecord = .{
             .id = id,
             .borehole_id = borehole_id,
@@ -44,15 +44,16 @@ pub const TelemetryService = struct {
 
         // Auto-generate alert if severe pump anomaly detected
         if (solar_battery_level < 10 or flow_rate_lpm <= 0.0) {
-            const bh = self.borehole_repo.findById(borehole_id).?;
-            try self.telemetry_repo.createAlert(.{
-                .borehole_id = borehole_id,
-                .borehole_name = bh.name,
-                .status = "broken",
-                .issue = "Critical telemetry failure detected by IoT sensor",
-                .reported_at = "2026-09-23T12:00:00Z",
-                .urgency = "critical",
-            });
+            if (self.borehole_repo.findById(borehole_id)) |bh| {
+                try self.telemetry_repo.createAlert(.{
+                    .borehole_id = borehole_id,
+                    .borehole_name = bh.name,
+                    .status = "broken",
+                    .issue = "Critical telemetry failure detected by IoT sensor",
+                    .reported_at = "2026-09-23T12:00:00Z",
+                    .urgency = "critical",
+                });
+            }
         }
 
         return .{ .telemetry_id = id, .borehole_id = borehole_id };

@@ -19,3 +19,7 @@ generate_worksheet_doc.py
 # OS files
 .DS_Store
 Thumbs.db
+
+# Presentation & Scratch (do not commit)
+presentation/
+scratch/

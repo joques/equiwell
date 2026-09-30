@@ -4,12 +4,16 @@ const Request = @import("../server/request.zig").Request;
 const Response = @import("../server/response.zig").Response;
 const Middleware = @import("../server/middleware.zig").Middleware;
 const Rbac = @import("../auth/rbac.zig").Rbac;
+const Validation = @import("../utils/validation.zig").Validation;
 
 /// GET /boreholes/{id}/logistics
 pub fn handleGetBoreholeLogistics(service: *const LogisticsService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAuth(req, res)) return;
     if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
         return try res.forbidden("Only Maintenance Crew or Admins can access logistics profiles.");
+    }
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
     }
 
     const log = service.getBoreholeLogistics(borehole_id) catch |err| {
@@ -42,6 +46,16 @@ pub fn handleCalculateRoute(service: *const LogisticsService, req: *const Reques
     };
     defer parsed.deinit();
 
+    if (!Validation.isValidString(parsed.value.destination_borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid destination borehole ID.");
+    }
+    if (!Validation.isValidString(parsed.value.start_coordinates, 1, 100)) {
+        return try res.badRequest("Invalid start coordinates.");
+    }
+    if (!Validation.isValidString(parsed.value.vehicle_type, 1, 50)) {
+        return try res.badRequest("Invalid vehicle type.");
+    }
+
     const r = service.calculateRoute(res.allocator, parsed.value.destination_borehole_id) catch |err| {
         if (err == error.NotFound) return try res.notFound("Destination borehole not found.");
         return try res.internalError("Failed to calculate route.");
@@ -72,6 +86,13 @@ pub fn handleGoogleMapsDirections(service: *const LogisticsService, req: *const 
         return try res.badRequest("Invalid coordinate payload.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidCoordinates(parsed.value.origin_lat, parsed.value.origin_lng)) {
+        return try res.badRequest("Invalid origin GPS coordinates. Latitude must be in [-90, 90], Longitude in [-180, 180].");
+    }
+    if (!Validation.isValidCoordinates(parsed.value.destination_lat, parsed.value.destination_lng)) {
+        return try res.badRequest("Invalid destination GPS coordinates. Latitude must be in [-90, 90], Longitude in [-180, 180].");
+    }
 
     const dir = try service.getDirections(res.allocator, parsed.value.origin_lat, parsed.value.origin_lng, parsed.value.destination_lat, parsed.value.destination_lng);
 

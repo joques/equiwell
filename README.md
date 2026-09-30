@@ -280,3 +280,18 @@ The system enforces 5 distinct roles via RFC-7519 JSON Web Tokens:
 | `POST` | `/api/v1/ai/training-data/borehole-logs` | Ingest empirical drilling logs | `admin`, `crew` |
 | `POST` | `/api/v1/ai/training-data/yield-maps` | Ingest GIS yield raster layers | `admin`, `crew` |
 | `POST` | `/api/v1/ai/routes/terrain-feasibility` | Assess drilling rig terrain feasibility | Non-Viewer |
+
+---
+
+## 7. Documentation & Handover Index
+
+For comprehensive engineering specifications, runbooks, and test evidence, refer to:
+- **[Architecture Specification](file:///c:/Users/Rauna/Desktop/Equiwell%2002/docs/architecture.md):** Clean layered architecture, component flow, concurrency, and memory isolation.
+- **[Security & RBAC Specification](file:///c:/Users/Rauna/Desktop/Equiwell%2002/docs/security.md):** PBKDF2 key derivation, JWT RFC 7519, 5-tier RBAC matrix, and DoS defenses.
+- **[Production Deployment Guide](file:///c:/Users/Rauna/Desktop/Equiwell%2002/docs/deployment.md):** Production runbook, build commands, environment variables, and health probes.
+- **[Operations & Maintenance Guide](file:///c:/Users/Rauna/Desktop/Equiwell%2002/docs/operations.md):** Day-2 operations, failure detection, secret rotation, and incident handling.
+- **[OpenAPI 3.0 Specification](file:///c:/Users/Rauna/Desktop/Equiwell%2002/docs/openapi.yaml):** Canonical API schemas, endpoints, request bodies, and response codes.
+- **[Automated Test Evidence](file:///c:/Users/Rauna/Desktop/Equiwell%2002/docs/test-evidence.md):** Complete evidence report for all 152 automated test assertions (100% pass).
+- **[Handover Checklist](file:///c:/Users/Rauna/Desktop/Equiwell%2002/docs/handover-checklist.md):** Engineering release verification and sign-off tracking.
+- **[Release Notes](file:///c:/Users/Rauna/Desktop/Equiwell%2002/RELEASE_NOTES.md):** Release 1.0.0 highlights, build metadata, and architectural advisories.
+- **[Changelog](file:///c:/Users/Rauna/Desktop/Equiwell%2002/CHANGELOG.md):** Historical hardening and security milestone changelog.

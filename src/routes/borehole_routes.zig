@@ -6,6 +6,7 @@ const BoreholeStatus = @import("../models/borehole.zig").BoreholeStatus;
 const PumpType = @import("../models/borehole.zig").PumpType;
 const Middleware = @import("../server/middleware.zig").Middleware;
 const Rbac = @import("../auth/rbac.zig").Rbac;
+const Validation = @import("../utils/validation.zig").Validation;
 
 /// GET /boreholes
 pub fn handleGetBoreholes(service: *const BoreholeService, req: *const Request, res: *const Response) !void {
@@ -14,12 +15,16 @@ pub fn handleGetBoreholes(service: *const BoreholeService, req: *const Request, 
 
     var status_filter: ?BoreholeStatus = null;
     if (status_str) |s| {
-        status_filter = BoreholeStatus.fromString(s);
+        status_filter = BoreholeStatus.fromString(s) orelse {
+            return try res.badRequest("Invalid status query parameter. Valid values: working, broken, maintenance_required.");
+        };
     }
 
     var pump_filter: ?PumpType = null;
     if (pump_str) |p| {
-        pump_filter = PumpType.fromString(p);
+        pump_filter = PumpType.fromString(p) orelse {
+            return try res.badRequest("Invalid pump_type query parameter. Valid values: solar, diesel, hand_pump, hybrid.");
+        };
     }
 
     const is_staff = if (req.user) |u| Rbac.isMaintenanceOrAdmin(u) else false;
@@ -60,6 +65,9 @@ pub fn handleGetBoreholes(service: *const BoreholeService, req: *const Request, 
 /// GET /boreholes/{id}
 pub fn handleGetBoreholeById(service: *const BoreholeService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
     _ = req;
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
+    }
     const b = service.getBoreholeById(borehole_id) orelse return try res.notFound("Borehole not found.");
 
     const json = try std.fmt.allocPrint(res.allocator,
@@ -104,7 +112,26 @@ pub fn handleCreateBorehole(service: *const BoreholeService, req: *const Request
     };
     defer parsed.deinit();
 
-    const pump_type = PumpType.fromString(parsed.value.pump_type) orelse .solar;
+    if (!Validation.isValidString(parsed.value.name, 1, 100)) {
+        return try res.badRequest("Invalid borehole name. Name must be between 1 and 100 characters.");
+    }
+    if (!Validation.isValidCoordinates(parsed.value.lat, parsed.value.lng)) {
+        return try res.badRequest("Invalid GPS coordinates. Latitude must be in [-90, 90] and Longitude in [-180, 180].");
+    }
+    if (!Validation.isValidStrictPositiveFloat(parsed.value.depth_m, 2000.0)) {
+        return try res.badRequest("Invalid borehole depth. Depth must be positive and <= 2000m.");
+    }
+    const pump_type = PumpType.fromString(parsed.value.pump_type) orelse {
+        return try res.badRequest("Invalid pump type specified. Valid values: solar, diesel, hand_pump, hybrid.");
+    };
+    if (parsed.value.yield_lph > 1000000) {
+        return try res.badRequest("Invalid yield. Must be <= 1,000,000 L/h.");
+    }
+    if (parsed.value.implemented_date) |d| {
+        if (!Validation.isValidDate(d)) {
+            return try res.badRequest("Invalid implemented_date format. Must be YYYY-MM-DD.");
+        }
+    }
 
     const result = try service.createBorehole(
         res.allocator,
@@ -129,6 +156,9 @@ pub fn handleCreateBorehole(service: *const BoreholeService, req: *const Request
 /// PUT /boreholes/{id}
 pub fn handleUpdateBorehole(service: *const BoreholeService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAdmin(req, res)) return;
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
+    }
 
     const parsed = std.json.parseFromSlice(struct {
         name: []const u8,
@@ -141,7 +171,23 @@ pub fn handleUpdateBorehole(service: *const BoreholeService, borehole_id: []cons
     };
     defer parsed.deinit();
 
-    const pump_type = PumpType.fromString(parsed.value.pump_type) orelse .solar;
+    if (!Validation.isValidString(parsed.value.name, 1, 100)) {
+        return try res.badRequest("Invalid borehole name.");
+    }
+    if (!Validation.isValidStrictPositiveFloat(parsed.value.depth_m, 2000.0)) {
+        return try res.badRequest("Invalid borehole depth. Depth must be positive and <= 2000m.");
+    }
+    const pump_type = PumpType.fromString(parsed.value.pump_type) orelse {
+        return try res.badRequest("Invalid pump type specified. Valid values: solar, diesel, hand_pump, hybrid.");
+    };
+    if (parsed.value.yield_lph > 1000000) {
+        return try res.badRequest("Invalid yield. Must be <= 1,000,000 L/h.");
+    }
+    if (parsed.value.implemented_date) |d| {
+        if (!Validation.isValidDate(d)) {
+            return try res.badRequest("Invalid implemented_date format. Must be YYYY-MM-DD.");
+        }
+    }
 
     if (!service.updateBorehole(borehole_id, parsed.value.name, parsed.value.depth_m, pump_type, parsed.value.yield_lph, parsed.value.implemented_date)) {
         return try res.notFound("Borehole not found.");
@@ -163,6 +209,9 @@ pub fn handlePatchBorehole(service: *const BoreholeService, borehole_id: []const
     if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
         return try res.forbidden("Only Admins or Maintenance Crew can patch boreholes.");
     }
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
+    }
 
     const parsed = std.json.parseFromSlice(struct {
         status: ?[]const u8 = null,
@@ -172,9 +221,15 @@ pub fn handlePatchBorehole(service: *const BoreholeService, borehole_id: []const
     };
     defer parsed.deinit();
 
+    if (parsed.value.status == null and parsed.value.is_visible == null) {
+        return try res.badRequest("No patch fields provided.");
+    }
+
     var new_status: ?BoreholeStatus = null;
     if (parsed.value.status) |st| {
-        new_status = BoreholeStatus.fromString(st);
+        new_status = BoreholeStatus.fromString(st) orelse {
+            return try res.badRequest("Invalid borehole status specified. Valid values: working, broken, maintenance_required.");
+        };
     }
 
     if (!service.patchBorehole(borehole_id, new_status, parsed.value.is_visible)) {
@@ -193,6 +248,9 @@ pub fn handlePatchBorehole(service: *const BoreholeService, borehole_id: []const
 /// DELETE /boreholes/{id}
 pub fn handleDeleteBorehole(service: *const BoreholeService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAdmin(req, res)) return;
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
+    }
 
     if (!service.deleteBorehole(borehole_id)) {
         return try res.notFound("Borehole not found.");

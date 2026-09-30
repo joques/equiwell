@@ -139,3 +139,132 @@ test "MCDA Groundwater Suitability Calculation" {
     const confidence = domain.hydrogeology.mcda.Mcda.computeConfidenceScore(suitability);
     try std.testing.expect(confidence > 70);
 }
+
+test "Input Validation helper functions" {
+    const Val = utils.validation.Validation;
+
+    // Coordinate validation & finite floats
+    try std.testing.expect(Val.isValidCoordinates(-18.0583, 13.8402));
+    try std.testing.expect(!Val.isValidCoordinates(-95.0, 13.0));
+    try std.testing.expect(!Val.isValidCoordinates(18.0, 185.0));
+    try std.testing.expect(!Val.isValidCoordinates(std.math.nan(f64), 13.0));
+    try std.testing.expect(!Val.isValidCoordinates(18.0, std.math.inf(f64)));
+
+    // Email validation
+    try std.testing.expect(Val.isValidEmail("rndevahoma@equiwell.nam"));
+    try std.testing.expect(!Val.isValidEmail("invalid-email"));
+    try std.testing.expect(!Val.isValidEmail("user@.com"));
+    try std.testing.expect(!Val.isValidEmail("user@domain..com"));
+    try std.testing.expect(!Val.isValidEmail("user name@domain.com"));
+
+    // Password validation
+    try std.testing.expect(Val.isValidPassword("SecurePassword123!"));
+    try std.testing.expect(!Val.isValidPassword("short"));
+    const long_pwd: [129]u8 = @splat('a');
+    try std.testing.expect(!Val.isValidPassword(&long_pwd));
+
+    // Date validation (calendar integrity & leap year rules)
+    try std.testing.expect(Val.isValidDate("2026-08-19"));
+    try std.testing.expect(Val.isValidDate("2024-02-29")); // Valid leap year
+    try std.testing.expect(Val.isValidDate("2026-02-28")); // Valid common year Feb
+    try std.testing.expect(Val.isValidDate("2026-04-30")); // Valid April 30
+    try std.testing.expect(Val.isValidDate("2026-12-31")); // Valid Dec 31
+    try std.testing.expect(!Val.isValidDate("2026-02-29")); // Invalid: 2026 not leap
+    try std.testing.expect(!Val.isValidDate("2025-02-29")); // Invalid: 2025 not leap
+    try std.testing.expect(!Val.isValidDate("2026-04-31")); // Invalid: April has 30 days
+    try std.testing.expect(!Val.isValidDate("2026-06-31")); // Invalid: June has 30 days
+    try std.testing.expect(!Val.isValidDate("2026-09-31")); // Invalid: September has 30 days
+    try std.testing.expect(!Val.isValidDate("2026-11-31")); // Invalid: November has 30 days
+    try std.testing.expect(!Val.isValidDate("2026-00-15")); // Invalid: month 00
+    try std.testing.expect(!Val.isValidDate("2026-13-19")); // Invalid: month 13
+    try std.testing.expect(!Val.isValidDate("2026-05-00")); // Invalid: day 00
+    try std.testing.expect(!Val.isValidDate("2026-08-32")); // Invalid: day 32
+    try std.testing.expect(!Val.isValidDate("invalid-date"));
+
+    // Percentage & Positive float bounds
+    try std.testing.expect(Val.isValidPercentage(100));
+    try std.testing.expect(!Val.isValidPercentage(101));
+    try std.testing.expect(Val.isValidPositiveFloat(50.5, 1000.0));
+    try std.testing.expect(!Val.isValidPositiveFloat(-1.0, 1000.0));
+    try std.testing.expect(!Val.isValidPositiveFloat(1001.0, 1000.0));
+
+    // Urgency validation
+    try std.testing.expect(Val.isValidUrgency("critical"));
+    try std.testing.expect(!Val.isValidUrgency("apocalyptic"));
+}
+
+test "Metrics initialization and request recording" {
+    var m = observability.metrics.Metrics.init();
+
+    // Start request
+    const t0 = m.recordRequestStart();
+    try std.testing.expectEqual(@as(u64, 1), m.total_requests.load(.monotonic));
+    try std.testing.expectEqual(@as(i64, 1), m.active_requests.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 1), m.peak_active_requests.load(.monotonic));
+
+    // Complete 200 OK
+    m.recordRequestComplete(t0, 200, 128, 512, false);
+    try std.testing.expectEqual(@as(i64, 0), m.active_requests.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 1), m.successful_requests.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 128), m.total_request_bytes.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 512), m.total_response_bytes.load(.monotonic));
+
+    // Record 400 Bad Request
+    const t1 = m.recordRequestStart();
+    m.recordRequestComplete(t1, 400, 50, 80, false);
+    try std.testing.expectEqual(@as(u64, 1), m.validation_failures.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 1), m.client_error_requests.load(.monotonic));
+
+    // Record 401 Unauthorized
+    const t2 = m.recordRequestStart();
+    m.recordRequestComplete(t2, 401, 50, 80, false);
+    try std.testing.expectEqual(@as(u64, 1), m.authentication_failures.load(.monotonic));
+
+    // Record 403 Forbidden
+    const t3 = m.recordRequestStart();
+    m.recordRequestComplete(t3, 403, 50, 80, false);
+    try std.testing.expectEqual(@as(u64, 1), m.authorization_denials.load(.monotonic));
+
+    // Record 413 Payload Too Large (Security Rejection)
+    const t4 = m.recordRequestStart();
+    m.recordRequestComplete(t4, 413, 100, 100, true);
+    try std.testing.expectEqual(@as(u64, 1), m.rate_or_security_rejections.load(.monotonic));
+
+    // Record 500 Internal Error
+    const t5 = m.recordRequestStart();
+    m.recordRequestComplete(t5, 500, 50, 80, false);
+    try std.testing.expectEqual(@as(u64, 1), m.server_error_requests.load(.monotonic));
+
+    // Queue rejection
+    m.recordQueueRejection();
+    try std.testing.expectEqual(@as(u64, 1), m.queue_rejections.load(.monotonic));
+
+    // Task completions
+    m.recordWorkerTaskCompleted();
+    m.recordWorkerTaskFailed();
+    try std.testing.expectEqual(@as(u64, 1), m.worker_tasks_completed.load(.monotonic));
+    try std.testing.expectEqual(@as(u64, 1), m.worker_tasks_failed.load(.monotonic));
+}
+
+test "Metrics JSON serialization and secret isolation" {
+    const allocator = std.testing.allocator;
+    var m = observability.metrics.Metrics.init();
+
+    const t0 = m.recordRequestStart();
+    m.recordRequestComplete(t0, 200, 100, 200, false);
+
+    const json = try m.formatJson(allocator);
+    defer allocator.free(json);
+
+    try std.testing.expect(json.len > 0);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"total_requests\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"successful_requests\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"uptime_seconds\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"average_latency_ms\":") != null);
+
+    // Verify ZERO sensitive keys are leaked
+    try std.testing.expect(std.mem.indexOf(u8, json, "password") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "secret") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "token") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "Authorization") == null);
+}

@@ -5,6 +5,7 @@ const Request = @import("../server/request.zig").Request;
 const Response = @import("../server/response.zig").Response;
 const Middleware = @import("../server/middleware.zig").Middleware;
 const Rbac = @import("../auth/rbac.zig").Rbac;
+const Validation = @import("../utils/validation.zig").Validation;
 
 /// GET /allocation-metrics
 pub fn handleGetAllocationMetrics(service: *const AllocationService, req: *const Request, res: *const Response) !void {
@@ -64,6 +65,22 @@ pub fn handleCreateCommunityRequest(service: *const CommunityService, req: *cons
         return try res.badRequest("Invalid community request JSON payload.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidString(parsed.value.community_name, 1, 100)) {
+        return try res.badRequest("Invalid community name. Must be 1 to 100 characters.");
+    }
+    if (!Validation.isValidString(parsed.value.contact_person, 1, 100)) {
+        return try res.badRequest("Invalid contact person name. Must be 1 to 100 characters.");
+    }
+    if (!Validation.isValidPhone(parsed.value.contact_phone)) {
+        return try res.badRequest("Invalid contact phone format. Must be 5 to 30 characters.");
+    }
+    if (!Validation.isValidString(parsed.value.issue, 3, 1000)) {
+        return try res.badRequest("Invalid issue description. Must be 3 to 1000 characters.");
+    }
+    if (!Validation.isValidUrgency(parsed.value.urgency)) {
+        return try res.badRequest("Invalid urgency classification. Valid values: low, medium, high, critical.");
+    }
 
     const result = try service.submitRequest(
         res.allocator,

@@ -25,11 +25,10 @@ pub const AiService = struct {
         allocator: std.mem.Allocator,
         target_area: []const u8,
     ) !SitingSuggestion {
+        const id = try Ids.formatSuggestionId(allocator, self.db.getNextSuggestionIndex());
+
         self.db.mutex.lock();
         defer self.db.mutex.unlock();
-
-        const count = self.db.siting_suggestions.items.len;
-        const id = try Ids.formatSuggestionId(allocator, count + 1);
 
         const sug: SitingSuggestion = .{
             .id = try self.db.allocator.dupe(u8, id),
@@ -87,11 +86,10 @@ pub const AiService = struct {
         tested_yield: u32,
         static_level: f64,
     ) !struct { log_id: []const u8, borehole_code: []const u8 } {
+        const id = try Ids.formatDrillingLogId(allocator, self.db.getNextDrillingLogIndex());
+
         self.db.mutex.lock();
         defer self.db.mutex.unlock();
-
-        const count = self.db.drilling_logs.items.len;
-        const id = try Ids.formatDrillingLogId(allocator, count + 1);
 
         const log: BoreholeDrillingLog = .{
             .id = try self.db.allocator.dupe(u8, id),

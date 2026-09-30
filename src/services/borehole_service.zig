@@ -32,8 +32,7 @@ pub const BoreholeService = struct {
         yield_lph: u32,
         implemented_date: ?[]const u8,
     ) !struct { borehole_id: []const u8, implemented_date: []const u8 } {
-        const count = self.repo.count();
-        const id = try Ids.formatBoreholeId(allocator, count + 1);
+        const id = try Ids.formatBoreholeId(allocator, self.repo.db.getNextBoreholeIndex());
         const imp_date = implemented_date orelse "2026-09-23";
 
         const new_b: Borehole = .{
@@ -71,23 +70,22 @@ pub const BoreholeService = struct {
         total_boreholes: usize,
         working_boreholes: usize,
         broken_boreholes: usize,
+        maintenance_required_boreholes: usize,
         communities_at_risk: usize,
         recent_installations_this_year: usize,
         latest_borehole_implemented_date: []const u8,
         last_synced_at: []const u8,
     } {
-        const total = self.repo.count();
-        const working = self.repo.countByStatus(.working);
-        const broken = self.repo.countByStatus(.broken) + self.repo.countByStatus(.maintenance_required);
-        const latest = self.repo.getLatestImplementedDate();
+        const stats = self.repo.getSummaryStats();
 
         return .{
-            .total_boreholes = total,
-            .working_boreholes = working,
-            .broken_boreholes = broken,
+            .total_boreholes = stats.total,
+            .working_boreholes = stats.working,
+            .broken_boreholes = stats.broken,
+            .maintenance_required_boreholes = stats.maintenance_required,
             .communities_at_risk = 3,
             .recent_installations_this_year = 1,
-            .latest_borehole_implemented_date = latest,
+            .latest_borehole_implemented_date = stats.latest_implemented_date,
             .last_synced_at = "2026-09-23T12:00:00Z",
         };
     }

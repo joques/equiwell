@@ -47,6 +47,12 @@ pub const UserRepository = struct {
         self.db.mutex.lock();
         defer self.db.mutex.unlock();
 
+        for (self.db.users.items) |u| {
+            if (std.mem.eql(u8, u.email, user.email)) {
+                return error.Conflict;
+            }
+        }
+
         const heap_user: User = .{
             .id = try self.db.allocator.dupe(u8, user.id),
             .name = try self.db.allocator.dupe(u8, user.name),

@@ -26,8 +26,7 @@ pub const UserService = struct {
             return error.Conflict;
         }
 
-        const count = self.repo.count();
-        const user_id = try Ids.formatUserId(allocator, count + 1);
+        const user_id = try Ids.formatUserId(allocator, self.repo.db.getNextUserIndex());
         const pwhash = try Password.hash(allocator, password);
 
         const new_user: User = .{

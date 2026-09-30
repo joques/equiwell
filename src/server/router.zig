@@ -10,6 +10,7 @@ const AllocationService = @import("../services/allocation_service.zig").Allocati
 const CommunityService = @import("../services/community_service.zig").CommunityService;
 const LogisticsService = @import("../services/logistics_service.zig").LogisticsService;
 const AiService = @import("../services/ai_service.zig").AiService;
+const Metrics = @import("../observability/metrics.zig").Metrics;
 
 // Route Handlers
 const dashboard_routes = @import("../routes/dashboard_routes.zig");
@@ -32,6 +33,7 @@ pub const Router = struct {
     community_service: *CommunityService,
     logistics_service: *LogisticsService,
     ai_service: *AiService,
+    metrics: *Metrics,
 
     pub fn init(
         user_service: *UserService,
@@ -43,6 +45,7 @@ pub const Router = struct {
         community_service: *CommunityService,
         logistics_service: *LogisticsService,
         ai_service: *AiService,
+        metrics: *Metrics,
     ) Router {
         return .{
             .user_service = user_service,
@@ -54,6 +57,7 @@ pub const Router = struct {
             .community_service = community_service,
             .logistics_service = logistics_service,
             .ai_service = ai_service,
+            .metrics = metrics,
         };
     }
 
@@ -73,13 +77,18 @@ pub const Router = struct {
         const method = req.method;
 
         // ----------------------------------------------------
-        // 0. HEALTH PROBE ENDPOINTS
+        // 0. HEALTH PROBE & METRICS ENDPOINTS
         // ----------------------------------------------------
         if (std.mem.eql(u8, method, "GET") and (std.mem.eql(u8, path, "/health") or std.mem.eql(u8, path, "/health/live"))) {
             return try res.ok("{\"status\":\"UP\",\"checks\":{\"service\":\"equiwell-api\",\"uptime\":\"OK\"}}");
         }
         if (std.mem.eql(u8, method, "GET") and std.mem.eql(u8, path, "/health/ready")) {
             return try res.ok("{\"status\":\"READY\",\"database\":\"connected\",\"version\":\"1.0.0\"}");
+        }
+        if (std.mem.eql(u8, method, "GET") and (std.mem.eql(u8, path, "/metrics") or std.mem.eql(u8, req.path, "/metrics") or std.mem.eql(u8, req.path, "/api/v1/metrics"))) {
+            const json = try self.metrics.formatJson(res.allocator);
+            defer res.allocator.free(json);
+            return try res.ok(json);
         }
 
         // ----------------------------------------------------

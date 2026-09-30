@@ -4,12 +4,16 @@ const Request = @import("../server/request.zig").Request;
 const Response = @import("../server/response.zig").Response;
 const Middleware = @import("../server/middleware.zig").Middleware;
 const Rbac = @import("../auth/rbac.zig").Rbac;
+const Validation = @import("../utils/validation.zig").Validation;
 
 /// POST /boreholes/{id}/lab-tests
 pub fn handleCreateLabTest(service: *const HealthService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAuth(req, res)) return;
     if (!Rbac.isHealthOrAdmin(req.user.?)) {
         return try res.forbidden("Only Health Inspectors or Admins can record laboratory tests.");
+    }
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
@@ -22,6 +26,16 @@ pub fn handleCreateLabTest(service: *const HealthService, borehole_id: []const u
         return try res.badRequest("Invalid lab test JSON payload.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidDate(parsed.value.test_date)) {
+        return try res.badRequest("Invalid test_date format. Must be YYYY-MM-DD.");
+    }
+    if (!Validation.isValidPositiveFloat(parsed.value.arsenic_mg_l, 1000.0)) {
+        return try res.badRequest("Invalid arsenic concentration. Must be a non-negative finite number <= 1000 mg/L.");
+    }
+    if (!Validation.isValidPositiveFloat(parsed.value.fluoride_mg_l, 1000.0)) {
+        return try res.badRequest("Invalid fluoride concentration. Must be a non-negative finite number <= 1000 mg/L.");
+    }
 
     const inspector_id = req.user.?.sub;
     const result = service.recordLabTest(
@@ -54,6 +68,9 @@ pub fn handleGetLabTests(service: *const HealthService, borehole_id: []const u8,
     if (!try Middleware.requireAuth(req, res)) return;
     if (!Rbac.isHealthOrAdmin(req.user.?)) {
         return try res.forbidden("Only Health Inspectors or Admins can view laboratory test histories.");
+    }
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
     }
 
     const tests = service.getLabTests(res.allocator, borehole_id) catch |err| {
@@ -93,6 +110,9 @@ pub fn handleGetUsageQuota(service: *const HealthService, borehole_id: []const u
     if (!try Middleware.requireAuth(req, res)) return;
     if (!Rbac.isHealthOrAdmin(req.user.?)) {
         return try res.forbidden("Only Health Inspectors or Admins can view usage quotas.");
+    }
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
     }
 
     const quota = service.getUsageQuota(borehole_id) catch |err| {

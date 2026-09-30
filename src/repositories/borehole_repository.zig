@@ -131,16 +131,40 @@ pub const BoreholeRepository = struct {
         return cnt;
     }
 
-    pub fn getLatestImplementedDate(self: BoreholeRepository) []const u8 {
+    pub const SummaryStats = struct {
+        total: usize,
+        working: usize,
+        broken: usize,
+        maintenance_required: usize,
+        latest_implemented_date: []const u8,
+    };
+
+    pub fn getSummaryStats(self: BoreholeRepository) SummaryStats {
         self.db.mutex.lock();
         defer self.db.mutex.unlock();
 
+        var working: usize = 0;
+        var broken: usize = 0;
+        var maintenance_required: usize = 0;
         var latest: []const u8 = "2024-03-15";
+
         for (self.db.boreholes.items) |b| {
+            switch (b.status) {
+                .working => working += 1,
+                .broken => broken += 1,
+                .maintenance_required => maintenance_required += 1,
+            }
             if (b.implemented_date.len > 0 and std.mem.order(u8, b.implemented_date, latest) == .gt) {
                 latest = b.implemented_date;
             }
         }
-        return latest;
+
+        return .{
+            .total = self.db.boreholes.items.len,
+            .working = working,
+            .broken = broken,
+            .maintenance_required = maintenance_required,
+            .latest_implemented_date = latest,
+        };
     }
 };

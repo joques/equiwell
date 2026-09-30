@@ -5,12 +5,16 @@ const Request = @import("../server/request.zig").Request;
 const Response = @import("../server/response.zig").Response;
 const Middleware = @import("../server/middleware.zig").Middleware;
 const Rbac = @import("../auth/rbac.zig").Rbac;
+const Validation = @import("../utils/validation.zig").Validation;
 
 /// POST /boreholes/{id}/telemetry
 pub fn handleIngestTelemetry(service: *const TelemetryService, borehole_id: []const u8, req: *const Request, res: *const Response) !void {
     if (!try Middleware.requireAuth(req, res)) return;
     if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
         return try res.forbidden("Only Maintenance Crew or Admins can submit telemetry records.");
+    }
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
     }
 
     const parsed = std.json.parseFromSlice(struct {
@@ -22,6 +26,19 @@ pub fn handleIngestTelemetry(service: *const TelemetryService, borehole_id: []co
         return try res.badRequest("Invalid telemetry JSON payload.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidPositiveFloat(parsed.value.drawdown_m, 1000.0)) {
+        return try res.badRequest("Invalid drawdown measurement. Must be a finite non-negative number <= 1000m.");
+    }
+    if (parsed.value.recovery_time_mins > 100000) {
+        return try res.badRequest("Invalid recovery time. Must be <= 100,000 minutes.");
+    }
+    if (!Validation.isValidPercentage(parsed.value.solar_battery_level)) {
+        return try res.badRequest("Invalid solar battery level. Must be between 0 and 100 percent.");
+    }
+    if (!Validation.isValidPositiveFloat(parsed.value.flow_rate_lpm, 50000.0)) {
+        return try res.badRequest("Invalid flow rate. Must be a finite non-negative number <= 50,000 L/min.");
+    }
 
     const result = service.ingestTelemetry(
         res.allocator,
@@ -76,6 +93,9 @@ pub fn handleGetYieldHistory(service: *const MaintenanceService, borehole_id: []
     if (!try Middleware.requireAuth(req, res)) return;
     if (!Rbac.isMaintenanceOrAdmin(req.user.?)) {
         return try res.forbidden("Only Maintenance Crew or Admins can view yield histories.");
+    }
+    if (!Validation.isValidString(borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID parameter.");
     }
 
     const history = service.getYieldHistory(res.allocator, borehole_id) catch |err| {

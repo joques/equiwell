@@ -4,6 +4,7 @@ const Request = @import("../server/request.zig").Request;
 const Response = @import("../server/response.zig").Response;
 const Middleware = @import("../server/middleware.zig").Middleware;
 const Rbac = @import("../auth/rbac.zig").Rbac;
+const Validation = @import("../utils/validation.zig").Validation;
 
 /// GET /factors
 pub fn handleGetFactors(service: *const AiService, req: *const Request, res: *const Response) !void {
@@ -30,6 +31,16 @@ pub fn handleGenerateSuggestion(service: *const AiService, req: *const Request, 
     };
     defer parsed.deinit();
 
+    if (!Validation.isValidString(parsed.value.target_area, 1, 100)) {
+        return try res.badRequest("Invalid target_area parameter.");
+    }
+    if (!Validation.isValidString(parsed.value.required_yield, 1, 50)) {
+        return try res.badRequest("Invalid required_yield parameter.");
+    }
+    if (!Validation.isValidString(parsed.value.priority_metric, 1, 50)) {
+        return try res.badRequest("Invalid priority_metric parameter.");
+    }
+
     const sug = try service.generateSuggestion(res.allocator, parsed.value.target_area);
 
     const json = try std.fmt.allocPrint(res.allocator,
@@ -44,6 +55,9 @@ pub fn handleGenerateSuggestion(service: *const AiService, req: *const Request, 
 /// GET /suggestions/{id}
 pub fn handleGetSuggestionById(service: *const AiService, suggestion_id: []const u8, req: *const Request, res: *const Response) !void {
     _ = req;
+    if (!Validation.isValidString(suggestion_id, 1, 50)) {
+        return try res.badRequest("Invalid suggestion ID parameter.");
+    }
     const sug = service.getSuggestionById(suggestion_id) orelse return try res.notFound("Siting suggestion not found.");
 
     const json = try std.fmt.allocPrint(res.allocator,
@@ -70,6 +84,13 @@ pub fn handlePredictYield(service: *const AiService, req: *const Request, res: *
         return try res.badRequest("Invalid prediction parameters.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidCoordinates(parsed.value.latitude, parsed.value.longitude)) {
+        return try res.badRequest("Invalid GPS coordinates for yield prediction. Latitude in [-90, 90], Longitude in [-180, 180].");
+    }
+    if (!Validation.isValidStrictPositiveFloat(parsed.value.target_aquifer_depth_m, 2000.0)) {
+        return try res.badRequest("Invalid target aquifer depth. Must be positive and <= 2000m.");
+    }
 
     const inf = service.predictYield(parsed.value.latitude, parsed.value.longitude, parsed.value.target_aquifer_depth_m);
 
@@ -98,6 +119,16 @@ pub fn handleAquiferDepletionRisk(service: *const AiService, req: *const Request
     };
     defer parsed.deinit();
 
+    if (!Validation.isValidString(parsed.value.borehole_id, 1, 50)) {
+        return try res.badRequest("Invalid borehole ID.");
+    }
+    if (parsed.value.planned_daily_extraction_liters == 0 or parsed.value.planned_daily_extraction_liters > 100_000_000) {
+        return try res.badRequest("Invalid planned daily extraction. Must be between 1 and 100,000,000 liters.");
+    }
+    if (parsed.value.simulation_horizon_years == 0 or parsed.value.simulation_horizon_years > 100) {
+        return try res.badRequest("Invalid simulation horizon. Must be between 1 and 100 years.");
+    }
+
     const sim = service.simulateDepletion(parsed.value.planned_daily_extraction_liters, parsed.value.simulation_horizon_years);
 
     const json = try std.fmt.allocPrint(res.allocator,
@@ -125,6 +156,16 @@ pub fn handleAsyncSitingTask(service: *const AiService, req: *const Request, res
     };
     defer parsed.deinit();
 
+    if (!Validation.isValidString(parsed.value.target_area, 1, 100)) {
+        return try res.badRequest("Invalid target_area parameter.");
+    }
+    if (!Validation.isValidString(parsed.value.required_yield, 1, 50)) {
+        return try res.badRequest("Invalid required_yield parameter.");
+    }
+    if (!Validation.isValidString(parsed.value.priority_metric, 1, 50)) {
+        return try res.badRequest("Invalid priority_metric parameter.");
+    }
+
     const task = service.dispatchAsyncTask(parsed.value.target_area);
 
     const json = try std.fmt.allocPrint(res.allocator,
@@ -139,6 +180,9 @@ pub fn handleAsyncSitingTask(service: *const AiService, req: *const Request, res
 /// GET /tasks/{id} or /api/v1/tasks/{id}
 pub fn handleGetTaskStatus(service: *const AiService, task_id: []const u8, req: *const Request, res: *const Response) !void {
     _ = req;
+    if (!Validation.isValidString(task_id, 1, 100)) {
+        return try res.badRequest("Invalid task ID parameter.");
+    }
     const task = service.getTaskStatus(task_id);
 
     const json = try std.fmt.allocPrint(res.allocator,
@@ -177,6 +221,25 @@ pub fn handleIngestDrillingLogs(service: *const AiService, req: *const Request, 
         return try res.badRequest("Invalid drilling log payload.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidString(parsed.value.borehole_code, 1, 50)) {
+        return try res.badRequest("Invalid borehole code.");
+    }
+    if (!Validation.isValidCoordinates(parsed.value.lat, parsed.value.lng)) {
+        return try res.badRequest("Invalid GPS coordinates. Latitude in [-90, 90], Longitude in [-180, 180].");
+    }
+    if (!Validation.isValidStrictPositiveFloat(parsed.value.total_depth_m, 2000.0)) {
+        return try res.badRequest("Invalid total depth. Must be positive and <= 2000m.");
+    }
+    if (!Validation.isValidPositiveFloat(parsed.value.water_strike_depth_m, parsed.value.total_depth_m)) {
+        return try res.badRequest("Invalid water strike depth. Must be non-negative and <= total depth.");
+    }
+    if (parsed.value.tested_yield_lph > 1000000) {
+        return try res.badRequest("Invalid tested yield. Must be <= 1,000,000 L/h.");
+    }
+    if (!Validation.isValidPositiveFloat(parsed.value.static_water_level_m, parsed.value.total_depth_m)) {
+        return try res.badRequest("Invalid static water level. Must be non-negative and <= total depth.");
+    }
 
     const result = try service.ingestDrillingLog(
         res.allocator,
@@ -225,6 +288,16 @@ pub fn handleTerrainFeasibility(service: *const AiService, req: *const Request, 
         return try res.badRequest("Invalid terrain feasibility request.");
     };
     defer parsed.deinit();
+
+    if (!Validation.isValidString(parsed.value.origin_coordinates, 1, 100)) {
+        return try res.badRequest("Invalid origin coordinates.");
+    }
+    if (!Validation.isValidString(parsed.value.destination_coordinates, 1, 100)) {
+        return try res.badRequest("Invalid destination coordinates.");
+    }
+    if (!Validation.isValidString(parsed.value.vehicle_type, 1, 50)) {
+        return try res.badRequest("Invalid vehicle type.");
+    }
 
     const assessment = service.evaluateTerrain(parsed.value.vehicle_type);
 

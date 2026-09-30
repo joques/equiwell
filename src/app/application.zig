@@ -76,7 +76,7 @@ pub const Application = struct {
         self.allocator = allocator;
         self.config = Config.initFromEnv(allocator);
         self.logger = Logger.init(.info);
-        self.metrics = .{};
+        self.metrics = Metrics.init();
         self.db = try Database.init(allocator);
 
         // Repositories
@@ -117,6 +117,7 @@ pub const Application = struct {
             &self.community_service,
             &self.logistics_service,
             &self.ai_service,
+            &self.metrics,
         );
 
         // Server

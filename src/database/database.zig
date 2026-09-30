@@ -29,6 +29,15 @@ pub const Database = struct {
     allocator: std.mem.Allocator,
     mutex: Mutex = .{},
 
+    // Monotonic atomic counters for collision-free concurrent ID generation
+    next_user_seq: std.atomic.Value(usize) = std.atomic.Value(usize).init(6),
+    next_borehole_seq: std.atomic.Value(usize) = std.atomic.Value(usize).init(6),
+    next_lab_seq: std.atomic.Value(usize) = std.atomic.Value(usize).init(2),
+    next_telemetry_seq: std.atomic.Value(usize) = std.atomic.Value(usize).init(1),
+    next_community_req_seq: std.atomic.Value(usize) = std.atomic.Value(usize).init(2),
+    next_suggestion_seq: std.atomic.Value(usize) = std.atomic.Value(usize).init(2),
+    next_drilling_log_seq: std.atomic.Value(usize) = std.atomic.Value(usize).init(1),
+
     users: std.ArrayList(User),
     boreholes: std.ArrayList(Borehole),
     lab_tests: std.ArrayList(LabTest),
@@ -38,10 +47,39 @@ pub const Database = struct {
     siting_suggestions: std.ArrayList(SitingSuggestion),
     drilling_logs: std.ArrayList(BoreholeDrillingLog),
 
+    pub fn getNextUserIndex(self: *Database) usize {
+        return self.next_user_seq.fetchAdd(1, .monotonic);
+    }
+
+    pub fn getNextBoreholeIndex(self: *Database) usize {
+        return self.next_borehole_seq.fetchAdd(1, .monotonic);
+    }
+
+    pub fn getNextLabIndex(self: *Database) usize {
+        return self.next_lab_seq.fetchAdd(1, .monotonic);
+    }
+
+    pub fn getNextTelemetryIndex(self: *Database) usize {
+        return self.next_telemetry_seq.fetchAdd(1, .monotonic);
+    }
+
+    pub fn getNextCommunityReqIndex(self: *Database) usize {
+        return self.next_community_req_seq.fetchAdd(1, .monotonic);
+    }
+
+    pub fn getNextSuggestionIndex(self: *Database) usize {
+        return self.next_suggestion_seq.fetchAdd(1, .monotonic);
+    }
+
+    pub fn getNextDrillingLogIndex(self: *Database) usize {
+        return self.next_drilling_log_seq.fetchAdd(1, .monotonic);
+    }
+
     pub fn init(allocator: std.mem.Allocator) !*Database {
         const self = try allocator.create(Database);
         self.* = .{
             .allocator = allocator,
+            .mutex = .{},
             .users = .empty,
             .boreholes = .empty,
             .lab_tests = .empty,

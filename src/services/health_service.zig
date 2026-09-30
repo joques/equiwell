@@ -31,7 +31,7 @@ pub const HealthService = struct {
             return error.NotFound;
         }
 
-        const id = try Ids.formatLabTestId(allocator, 2);
+        const id = try Ids.formatLabTestId(allocator, self.lab_repo.db.getNextLabIndex());
         const new_test: LabTest = .{
             .id = id,
             .borehole_id = borehole_id,

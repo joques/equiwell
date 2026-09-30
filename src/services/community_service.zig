@@ -23,7 +23,7 @@ pub const CommunityService = struct {
         issue: []const u8,
         urgency: []const u8,
     ) !struct { request_id: []const u8, status: []const u8 } {
-        const id = try Ids.formatCommunityRequestId(allocator, 2);
+        const id = try Ids.formatCommunityRequestId(allocator, self.repo.db.getNextCommunityReqIndex());
         const req: CommunityRequest = .{
             .id = id,
             .community_name = community_name,

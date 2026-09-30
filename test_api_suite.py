@@ -3,7 +3,7 @@
   EquiWell API Automated Integration Test Suite
   Region: Kunene Region, Namibia
   Framework: Native Python standard library (urllib.request + json)
-  Scope: 39 Assertions covering 28 Endpoints & 5 RBAC Security Roles
+  Scope: 39 Assertions covering 39 Endpoints & 5 RBAC Security Roles
 ==============================================================================
 """
 
@@ -74,7 +74,8 @@ def run_tests():
         "email": test_email,
         "password": "SecurePassword123!"
     })
-    assert_test("POST /users/register", status == 201 and "user_id" in res, f"Status: {status}")
+    target_user_id = res.get("user_id")
+    assert_test("POST /users/register", status == 201 and target_user_id is not None, f"Status: {status}")
 
     # Login as Admin
     status, res = request("POST", "/users/login", {
@@ -105,14 +106,14 @@ def run_tests():
     status, res = request("GET", "/users/USR-001", token=admin_token)
     assert_test("GET /users/{id}", status == 200 and res.get("id") == "USR-001")
 
-    status, res = request("PUT", "/users/USR-005", {"name": "Updated Viewer", "email": "updated_viewer@equiwell.nam"}, token=admin_token)
+    status, res = request("PUT", f"/users/{target_user_id}", {"name": "Updated Tester", "email": f"updated_{test_email}"}, token=admin_token)
     assert_test("PUT /users/{id}", status == 200)
 
-    status, res = request("PATCH", "/users/USR-005/role", {"role": "health_inspector"}, token=admin_token)
+    status, res = request("PATCH", f"/users/{target_user_id}/role", {"role": "health_inspector"}, token=admin_token)
     assert_test("PATCH /users/{id}/role (Admin)", status == 200)
 
     # Delete User
-    status, res = request("DELETE", "/users/USR-005", token=admin_token)
+    status, res = request("DELETE", f"/users/{target_user_id}", token=admin_token)
     assert_test("DELETE /users/{id} (Admin)", status == 200)
 
     # ----------------------------------------------------
